@@ -49,6 +49,26 @@ details.ainfo .kv b{color:var(--text)}
 details.ainfo .tag{display:inline-block;background:var(--soft);border-radius:6px;padding:1px 7px;margin:0 3px 3px 0;color:var(--text)}
 details.ainfo a{color:var(--accent);font-weight:700}
 
+/* 설정 편집 */
+.sform{display:grid;gap:12px;margin-top:12px}
+.sform .f{display:grid;gap:5px}
+.sform label.t{font-weight:700;color:var(--text);font-size:13px}
+.sform .hint{font-size:12px;color:var(--muted)}
+.sform input[type=text],.sform input[type=number],.sform input[type=password]{width:100%}
+.sform .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.sform .row input[type=number]{width:90px}
+.catpick{display:flex;flex-wrap:wrap;gap:6px}
+.catpick label{display:flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;cursor:pointer;font-size:13px;color:var(--text)}
+.catpick input{padding:0}
+.btn{cursor:pointer;font-weight:700}
+.btn.primary{background:var(--navy);color:var(--card);border-color:var(--navy)}
+.smsg{font-size:13px;font-weight:700}
+.smsg.ok{color:var(--t3)}.smsg.err{color:var(--t1)}
+.tokbox{border-top:1px dashed var(--line);padding-top:10px}
+/* AI 추천 대체 카드 */
+.hscore{font-size:46px;line-height:1;font-weight:900;color:#7b2ff7;letter-spacing:-1px}
+.hscore small{font-size:16px;margin-left:3px;letter-spacing:0}
+
 /* ===== 대박딜 히어로 ===== */
 .hero h2{font-size:17px;margin:0 0 10px;font-weight:800}
 .hero-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;margin-bottom:26px}
@@ -194,21 +214,117 @@ const SORT = {
   cheap: (a, b) => (a.price ?? Infinity) - (b.price ?? Infinity),
 };
 
-function renderAlertInfo(s) {
+// ===== 알림 설정: 보기 + 웹에서 수정 (GitHub API로 settings.json 직접 커밋) =====
+const REPO = 'realseoyt-create/deal-feed';
+const CATS = ['생활용품', '식품', '디지털/가전', '패션/뷰티', '상품권/쿠폰', '여행', '기타'];
+let cfg = null, cfgSha = null;
+const getTok = () => { try { return localStorage.getItem('df:ghToken') || ''; } catch { return ''; } };
+const setTok = v => { try { v ? localStorage.setItem('df:ghToken', v) : localStorage.removeItem('df:ghToken'); } catch {} };
+const b64dec = s => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\n/g, '')), c => c.charCodeAt(0)));
+const b64enc = s => { const b = new TextEncoder().encode(s); let x = ''; b.forEach(c => x += String.fromCharCode(c)); return btoa(x); };
+
+async function fetchSettings() {
+  const h = getTok() ? { Authorization: `Bearer ${getTok()}` } : {};
+  const r = await fetch(`https://api.github.com/repos/${REPO}/contents/settings.json?ref=main&t=${Date.now()}`, { headers: h, cache: 'no-store' });
+  if (!r.ok) throw new Error(`설정 불러오기 실패 (${r.status})`);
+  const j = await r.json();
+  cfgSha = j.sha;
+  return JSON.parse(b64dec(j.content));
+}
+
+async function saveSettings(next) {
+  const tok = getTok();
+  if (!tok) throw new Error('먼저 아래에 GitHub 토큰을 저장해 주세요');
+  const put = () => fetch(`https://api.github.com/repos/${REPO}/contents/settings.json`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: 'settings: 웹에서 알림 조건 변경', content: b64enc(JSON.stringify(next, null, 2) + '\n'), sha: cfgSha, branch: 'main' }),
+  });
+  let r = await put();
+  if (r.status === 409 || r.status === 422) { await fetchSettings(); r = await put(); } // 그 사이 봇이 바꿨으면 최신 sha로 재시도
+  if (r.status === 401 || r.status === 403) throw new Error('토큰 권한이 없어요 (Contents: Read and write 필요)');
+  if (!r.ok) throw new Error(`저장 실패 (${r.status})`);
+  cfgSha = (await r.json()).content.sha;
+}
+
+const splitList = v => [...new Set(v.split(/[,，\n]/).map(s => s.trim()).filter(Boolean))];
+
+function renderSettings(s) {
   const el = $('ainfo');
-  if (!s?.alerts) { el.hidden = true; return; }
-  const a = s.alerts, q = s.quietHours;
+  const a = s?.alerts ?? {}, q = s?.quietHours;
   const tags = arr => (arr ?? []).map(k => `<span class="tag">${esc(k)}</span>`).join('') || '없음';
+  const tok = getTok();
   el.hidden = false;
-  el.innerHTML = `<summary>🔔 텔레그램 알림 조건 보기</summary>
+  el.innerHTML = `<summary>🔔 텔레그램 알림 조건 · 웹에서 바꾸기</summary>
     <div class="kv">
       <div><b>키워드</b> ${tags(a.keywords)}</div>
       <div><b>관심 카테고리</b> ${tags(a.categories)} ${a.maxPrice ? `· ${won(a.maxPrice)} 이하` : ''} · 다나와보다 ${a.minDiscountPct ?? 10}% 이상 쌀 때</div>
-      <div><b>반응</b> 추천 ${a.hotRecommend ?? 3}개 이상 · 조회 속도 상위 ${a.hotTopPercent ?? 10}% (다나와보다 쌀 때만)</div>
+      <div><b>반응</b> 추천 ${a.hotRecommend ?? 3}개 이상 · 조회 속도 상위 ${a.hotTopPercent ?? 10}% · 🏆 AI 강력추천은 항상</div>
       <div><b>제외어</b> ${tags(a.excludeKeywords)}</div>
       <div><b>방해 금지</b> ${q ? `${q.start}시~${q.end}시 (끝나면 모아서 발송)` : '꺼짐'}</div>
-      <div>바꾸려면 <a href="https://t.me/Pompoobot" target="_blank" rel="noopener">텔레그램 봇</a>에 <code>/help</code></div>
-    </div>`;
+    </div>
+    <form class="sform" id="sform">
+      <div class="f"><label class="t" for="s_kw">관심 키워드</label>
+        <input type="text" id="s_kw" value="${esc((a.keywords ?? []).join(', '))}" placeholder="휴지, 생수, 세제">
+        <span class="hint">쉼표로 구분 · 제목에 들어 있으면 알림 (다나와보다 비싸지 않을 때)</span></div>
+      <div class="f"><span class="t">관심 카테고리</span>
+        <div class="catpick">${CATS.map(c => `<label><input type="checkbox" name="s_cat" value="${esc(c)}" ${(a.categories ?? []).includes(c) ? 'checked' : ''}> ${esc(c)}</label>`).join('')}</div></div>
+      <div class="f"><span class="t">카테고리 조건</span>
+        <div class="row"><input type="number" id="s_max" value="${a.maxPrice ?? ''}" step="1000" min="0" style="width:130px"> 원 이하이고, 다나와보다
+          <input type="number" id="s_min" value="${a.minDiscountPct ?? 10}" min="0" max="90"> % 이상 쌀 때</div></div>
+      <div class="f"><span class="t">반응 조건</span>
+        <div class="row">추천 <input type="number" id="s_rec" value="${a.hotRecommend ?? 3}" min="1" max="50"> 개 이상 · 조회 속도 상위
+          <input type="number" id="s_top" value="${a.hotTopPercent ?? 10}" min="1" max="50"> %</div></div>
+      <div class="f"><label class="t" for="s_ex">제외어</label>
+        <input type="text" id="s_ex" value="${esc((a.excludeKeywords ?? []).join(', '))}" placeholder="종료, 품절"></div>
+      <div class="f"><span class="t">방해 금지</span>
+        <div class="row"><label class="tog"><input type="checkbox" id="s_qon" ${q ? 'checked' : ''}> 사용</label>
+          <input type="number" id="s_qs" value="${q?.start ?? 23}" min="0" max="23"> 시 ~
+          <input type="number" id="s_qe" value="${q?.end ?? 7}" min="0" max="23"> 시</div></div>
+      <div class="row"><button class="btn primary" type="submit" ${tok ? '' : 'disabled'}>저장</button>
+        <span class="smsg" id="smsg">${tok ? '저장하면 다음 수집(10~20분 내)부터 적용' : '저장하려면 아래에 토큰을 먼저 연결하세요'}</span></div>
+      <div class="f tokbox"><span class="t">GitHub 토큰 ${tok ? '✅ 연결됨' : ''}</span>
+        <span class="hint">이 브라우저에만 저장됩니다. <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">토큰 만들기</a> → Repository access: <b>deal-feed만</b> → Permissions: <b>Contents: Read and write</b></span>
+        <div class="row"><input type="password" id="s_tok" placeholder="${tok ? '연결됨 (바꾸려면 새로 입력)' : 'github_pat_...'}" style="flex:1;min-width:200px">
+          <button class="btn" type="button" id="s_toksave">토큰 저장</button>
+          ${tok ? '<button class="btn" type="button" id="s_tokdel">연결 해제</button>' : ''}</div>
+      </div>
+      <div class="hint">텔레그램 봇에 <code>/help</code>로도 바꿀 수 있어요 · <a href="https://t.me/Pompoobot" target="_blank" rel="noopener">@Pompoobot</a></div>
+    </form>`;
+
+  $('s_toksave').onclick = () => { const v = $('s_tok').value.trim(); if (!v) return; setTok(v); renderSettings(cfg); $('ainfo').open = true; };
+  if ($('s_tokdel')) $('s_tokdel').onclick = () => { setTok(''); renderSettings(cfg); $('ainfo').open = true; };
+  $('sform').onsubmit = async e => {
+    e.preventDefault();
+    const msg = $('smsg'); msg.className = 'smsg'; msg.textContent = '저장 중…';
+    const num = (id, d) => { const n = Number($(id).value); return Number.isFinite(n) && $(id).value !== '' ? n : d; };
+    try {
+      const latest = await fetchSettings(); // 봇이 바꾼 다른 값 보존
+      latest.alerts = {
+        ...latest.alerts,
+        keywords: splitList($('s_kw').value),
+        categories: [...document.querySelectorAll('input[name=s_cat]:checked')].map(x => x.value),
+        maxPrice: num('s_max', null),
+        minDiscountPct: Math.min(90, Math.max(0, num('s_min', 10))),
+        hotRecommend: Math.max(1, num('s_rec', 3)),
+        hotTopPercent: Math.min(50, Math.max(1, num('s_top', 10))),
+        excludeKeywords: splitList($('s_ex').value),
+      };
+      if ($('s_qon').checked) {
+        const st = num('s_qs', 23), en = num('s_qe', 7);
+        if (st === en || st < 0 || st > 23 || en < 0 || en > 23) throw new Error('방해 금지 시각을 0~23, 서로 다르게 입력하세요');
+        latest.quietHours = { start: st, end: en };
+      } else delete latest.quietHours;
+      await saveSettings(latest);
+      cfg = latest; renderSettings(cfg); $('ainfo').open = true;
+      $('smsg').className = 'smsg ok'; $('smsg').textContent = '✅ 저장됨 · 다음 수집(10~20분 내)부터 적용';
+    } catch (err) { msg.className = 'smsg err'; msg.textContent = err.message; }
+  };
+}
+
+async function loadSettings(fallback) {
+  try { cfg = await fetchSettings(); } catch { cfg = fallback ?? null; }
+  if (cfg) renderSettings(cfg);
 }
 
 // 본문에서 AI가 뽑은 "싸게 사는 포인트" (원문은 링크에서)
@@ -230,7 +346,21 @@ function renderHero() {
   const strong = all.filter(d => recent(d) && d.ai?.verdict === '강력추천' && d.danawa).sort(SORT.ai);
   const cheap = all.filter(d => recent(d) && off(d) >= 10 && !strong.includes(d) && d.ai?.verdict !== '비추천').sort(SORT.dn);
   const top = [...strong, ...cheap].slice(0, 3);
-  if (!top.length) { $('hero').innerHTML = ''; return; }
+  if (!top.length) {
+    // 시세보다 싸다고 확인된 딜이 없을 때: AI가 '추천' 이상 준 딜을 대신 보여줌 (근거 수준을 명시)
+    const picks = all.filter(d => recent(d) && ['강력추천', '추천'].includes(d.ai?.verdict)).sort(SORT.ai).slice(0, 3);
+    if (!picks.length) { $('hero').innerHTML = ''; return; }
+    $('hero').innerHTML = `<h2>🤖 AI 추천 딜</h2>
+      <div class="hint" style="font-size:12px;color:var(--muted);margin:-4px 0 10px">지금은 다나와보다 확실히 싸다고 확인된 딜이 없어서, AI가 가격·반응·구매 포인트를 보고 고른 딜을 보여드려요</div>
+      <div class="hero-grid">${picks.map(d => `<a class="hcard top" href="${esc(d.url)}" target="_blank" rel="noopener" style="--tc:#7b2ff7;--tbg:var(--soft)">
+        <div><span class="hscore">${d.ai.score}<small>점</small></span><span class="htier" style="background:#7b2ff7">${esc(d.ai.verdict)}</span></div>
+        <div class="hreason">🤖 ${esc(d.ai.reason)}</div>
+        <div class="hname">${esc(d.mall ? `[${d.mall}] ` : '')}${esc(d.product || d.title)}</div>
+        <div class="hprice"><b>${won(d.price) || '가격 다양'}</b>${d.danawa ? `<span class="strike">다나와 ${won(d.danawa.price)}</span>` : ''}</div>
+        ${tipsLine(d)}
+      </a>`).join('')}</div>`;
+    return;
+  }
   $('hero').innerHTML = `<h2>${strong.length ? '🏆 AI 강력추천 · 지금 가장 싼 딜' : '🔥 지금 가장 싼 딜'}</h2><div class="hero-grid">${top.map(d => {
     const t = tier(d);
     return `<a class="hcard ${t.cls} ${d.ai?.verdict === '강력추천' ? 'top' : ''}" href="${esc(d.url)}" target="_blank" rel="noopener">
@@ -319,7 +449,9 @@ async function load() {
     all = data.deals;
     const nNew = all.filter(isNew).length;
     $('meta').innerHTML = `${nNew ? `<b>새 딜 ${nNew}건</b> · ` : ''}${data.updatedAt ? `업데이트 ${ago(data.updatedAt)}` : ''}`;
-    renderAlertInfo(data.settings); renderHero(); renderChips(); render();
+    // 설정 폼은 처음 한 번만 그림 (5분 자동 새로고침 때 입력 중인 내용이 날아가지 않게)
+    if (!cfg) loadSettings(data.settings);
+    renderHero(); renderChips(); render();
   } catch (e) { $('meta').textContent = '데이터를 불러오지 못했습니다'; }
 }
 
