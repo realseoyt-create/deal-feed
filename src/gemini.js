@@ -1,6 +1,6 @@
 // Gemini로 "딜 상품 = 다나와 후보 중 몇 번?" + 수량 비교 판정
 // GEMINI_API_KEY 없으면 null 반환 → 규칙 기반 매칭으로 대체
-const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest'; // 별칭: 구버전 단종에도 안 깨짐
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let last = 0;
 
@@ -26,7 +26,7 @@ ${candidates.map((c, i) => `${i}. "${c.name}" / ${c.price}원`).join('\n')}
 - 확신이 낮으면 confidence를 낮게
 JSON만: {"match": 정수, "ratio": 숫자, "confidence": 0~1, "reason": "20자 이내"}`;
 
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+  const call = () => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -34,6 +34,9 @@ JSON만: {"match": 정수, "ratio": 숫자, "confidence": 0~1, "reason": "20자 
       generationConfig: { responseMimeType: 'application/json', temperature: 0 },
     }),
   });
+  // 503(혼잡)·429(한도)는 잠시 후 최대 2번 재시도, 그래도 실패하면 호출부가 규칙 매칭으로 대체
+  let r = await call();
+  for (let i = 0; i < 2 && (r.status === 503 || r.status === 429); i++) { await sleep(8000 * (i + 1)); r = await call(); }
   if (!r.ok) throw new Error(`gemini ${r.status} ${(await r.text()).slice(0, 200)}`);
   const j = await r.json();
   const out = JSON.parse(j.candidates[0].content.parts[0].text.replace(/^```json\s*|\s*```$/g, ''));
