@@ -155,7 +155,7 @@ function renderHero() {
       <div><span class="hpct">-${off(d)}<small>%</small></span><span class="htier">${t.label}</span></div>
       <div class="hname">${esc(d.mall ? `[${d.mall}] ` : '')}${esc(d.product || d.title)}</div>
       <div class="hprice"><b>${won(d.price)}</b><span class="strike">다나와 ${won(d.danawa.price)}</span></div>
-      <span class="save">${won(saved(d))} 절약</span>
+      <span class="save">${won(saved(d))} 절약</span>${d.hist?.lowest ? ' <span class="save">📉 뽐뿌 역대 최저</span>' : ''}
     </a>`;
   }).join('')}</div>`;
 }
@@ -181,7 +181,14 @@ function card(d) {
     prices += `<span class="strike">다나와 <a href="${esc(d.danawa.url)}" target="_blank" rel="noopener">${won(d.danawa.price)}</a></span>`;
     if (saved(d) > 0) prices += `<span class="save" style="background:var(--tbg);color:var(--tc)">${won(saved(d))} 절약</span>`;
     const pct = Math.max(3, Math.min(100, d.price / d.danawa.price * 100));
-    bar = `<div class="bar"><i style="width:${pct}%"></i></div><div class="barlbl">다나와 최저가를 100으로 보면 <b>${Math.round(d.price / d.danawa.price * 100)}</b></div>`;
+    const note = [d.danawa.ratio && d.danawa.ratio !== 1 ? `수량 ×${d.danawa.ratio} 환산` : '', d.danawa.by === 'ai' ? 'AI 매칭' : ''].filter(Boolean).join(' · ');
+    bar = `<div class="bar"><i style="width:${pct}%"></i></div><div class="barlbl">다나와 최저가를 100으로 보면 <b>${Math.round(d.price / d.danawa.price * 100)}</b>${note ? ` · ${note}` : ''}</div>`;
+  }
+  if (d.hist) {
+    prices += d.hist.lowest
+      ? `<span class="save t1" style="background:var(--t1bg);color:var(--t1)">📉 뽐뿌 역대 최저</span>`
+      : '';
+    bar += `<div class="barlbl">뽐뿌 이전 최저 ${won(d.hist.prevMin)} · ${d.hist.count}회 등장</div>`;
   }
   return `<div class="deal ${t ? 'has ' + t.cls : ''}">
     ${badge}

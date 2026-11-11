@@ -31,7 +31,7 @@ export function merge(state, items) {
     const old = byId.get(it.id);
     if (old) Object.assign(old, it, {
       first_seen: old.first_seen, notified: old.notified, alert: old.alert,
-      danawa: old.danawa, danawa_checked: old.danawa_checked, last_seen: now,
+      danawa: old.danawa, danawa_checked: old.danawa_checked, hist: old.hist, last_seen: now,
     });
     else { byId.set(it.id, { ...it, first_seen: now, last_seen: now, notified: 0 }); added++; }
   }
