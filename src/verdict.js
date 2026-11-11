@@ -22,6 +22,8 @@ function facts(d) {
 }
 
 export async function aiVerdicts(deals, max = 8) {
+  // 상위 모델은 하루 한도가 작아 20분에 1번만 판정 (나머지 실행은 건너뜀)
+  if (new Date().getUTCMinutes() % 20 >= 10) return;
   if (!hasGemini()) return;
   const targets = deals
     .filter(d => Date.now() - new Date(d.posted_at) < 24 * HOUR && hasEvidence(d) && d.ai?.fp !== fingerprint(d))

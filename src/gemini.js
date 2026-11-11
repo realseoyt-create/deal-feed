@@ -1,6 +1,8 @@
 // Gemini 호출: 상품 매칭 판정 + 카테고리 분류
 // GEMINI_API_KEY 없으면 null 반환 → 규칙 기반으로 대체
-const MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest'; // 별칭: 구버전 단종에도 안 깨짐
+// 별칭 모델: 구버전 단종에도 안 깨짐. 매칭·분류는 무료 한도가 넉넉한 경량 모델, 종합 판정만 상위 모델
+const MODEL = process.env.GEMINI_MODEL || 'gemini-flash-latest';
+const LITE = process.env.GEMINI_LITE_MODEL || 'gemini-flash-lite-latest';
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 let last = 0;
 let failStreak = 0; // 연속 실패가 쌓이면 이번 실행에서는 AI를 쉬고 규칙으로 대체
@@ -8,13 +10,13 @@ let failStreak = 0; // 연속 실패가 쌓이면 이번 실행에서는 AI를 �
 export const hasGemini = () => !!process.env.GEMINI_API_KEY && failStreak < 2;
 export const CATEGORIES = ['생활용품', '식품', '디지털/가전', '패션/뷰티', '상품권/쿠폰', '여행', '기타'];
 
-export async function askJSON(prompt) { return ask(prompt); }
+export async function askJSON(prompt) { return ask(prompt, MODEL); }
 
-async function ask(prompt) {
+async function ask(prompt, model = LITE) {
   // 무료 한도(분당 요청 수) 보호: 호출 간 최소 5초
   const wait = 5000 - (Date.now() - last); if (wait > 0) await sleep(wait);
   last = Date.now();
-  const call = () => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+  const call = () => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

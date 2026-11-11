@@ -84,7 +84,7 @@ async function checkDanawa(d) {
 }
 
 // 화면 표시용: 반응이 중간 이상인 최근 딜을 실행당 최대 N건 비교 (대량 조회 방지)
-export async function enrichDanawa(deals, limit = 10, budgetMs = 150e3) {
+export async function enrichDanawa(deals, limit = 6, budgetMs = 150e3) {
   const t0 = Date.now();
   for (const d of deals) {
     if (!d.danawa || d.danawa.by === 'ai') continue;
