@@ -49,6 +49,17 @@ details.ainfo .kv b{color:var(--text)}
 details.ainfo .tag{display:inline-block;background:var(--soft);border-radius:6px;padding:1px 7px;margin:0 3px 3px 0;color:var(--text)}
 details.ainfo a{color:var(--accent);font-weight:700}
 
+/* 텔레그램 구독 */
+.tgbtn{flex:0 0 auto;display:inline-flex;align-items:center;gap:5px;background:#229ED9;color:#fff;text-decoration:none;font-size:13px;font-weight:800;padding:7px 12px;border-radius:999px;align-self:center}
+.tgbtn:hover{filter:brightness(1.08)}
+.subcard{display:flex;gap:14px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:14px}
+.subcard .ic{font-size:30px}
+.subcard .tx{flex:1;min-width:0;font-size:13px;color:var(--muted);line-height:1.5}
+.subcard .tx b{display:block;color:var(--text);font-size:15px;margin-bottom:2px}
+.subcard .x{background:none;border:0;color:var(--muted);font-size:18px;cursor:pointer;padding:4px 6px}
+.steps{margin:6px 0 0;padding-left:18px}
+@media (max-width:600px){.tgbtn span{display:none}.subcard{flex-wrap:wrap}}
+
 /* 설정 편집 */
 .sform{display:grid;gap:12px;margin-top:12px}
 .sform .f{display:grid;gap:5px}
@@ -148,7 +159,8 @@ footer{padding:0 16px 30px;font-size:12px;color:var(--muted);line-height:1.6}
 <body>
 <header id="hd">
   <div class="wrap">
-    <div class="top"><h1>꿀딜 피드</h1><span class="meta" id="meta">불러오는 중…</span></div>
+    <div class="top"><h1>꿀딜 피드</h1><span class="meta" id="meta">불러오는 중…</span>
+      <a class="tgbtn" href="https://t.me/Pompoobot?start=web" target="_blank" rel="noopener" title="텔레그램으로 알림 받기">📲 <span>알림 받기</span></a></div>
     <div class="filters">
       <input type="search" id="q" placeholder="검색 (예: 휴지, 생수, 에어팟)">
       <button id="fbtn" type="button" aria-expanded="false">필터 ▾</button>
@@ -169,6 +181,15 @@ footer{padding:0 16px 30px;font-size:12px;color:var(--muted);line-height:1.6}
   </div>
 </header>
 <main class="wrap">
+  <div class="subcard" id="subcard" hidden>
+    <div class="ic">📲</div>
+    <div class="tx"><b>진짜 싼 딜만 텔레그램으로 받아보세요</b>
+      다나와보다 확실히 싸거나 AI가 강력추천한 딜만 골라 보내드려요. 밤 11시~아침 7시엔 모아서 한 번에.
+      <ol class="steps"><li>아래 버튼 → 텔레그램에서 <b style="display:inline;font-size:13px">시작</b> 누르기</li><li>끝! 그만 받으려면 봇에게 /stop</li></ol>
+      <span id="subcount"></span></div>
+    <a class="tgbtn" href="https://t.me/Pompoobot?start=web" target="_blank" rel="noopener">📲 <span style="display:inline">텔레그램으로 받기</span></a>
+    <button class="x" id="subclose" aria-label="닫기">✕</button>
+  </div>
   <details class="ainfo" id="ainfo" hidden></details>
   <section class="hero" id="hero"></section>
   <div class="sec" id="listTitle">전체 딜</div>
@@ -449,6 +470,10 @@ async function load() {
     all = data.deals;
     const nNew = all.filter(isNew).length;
     $('meta').innerHTML = `${nNew ? `<b>새 딜 ${nNew}건</b> · ` : ''}${data.updatedAt ? `업데이트 ${ago(data.updatedAt)}` : ''}`;
+    // 구독 안내 카드 (닫으면 이 브라우저에선 다시 안 보임)
+    let closed = false; try { closed = localStorage.getItem('df:subClosed') === '1'; } catch {}
+    $('subcard').hidden = closed;
+    if (data.subscriberCount) $('subcount').textContent = `지금 ${data.subscriberCount + 1}명이 받고 있어요`;
     // 설정 폼은 처음 한 번만 그림 (5분 자동 새로고침 때 입력 중인 내용이 날아가지 않게)
     if (!cfg) loadSettings(data.settings);
     renderHero(); renderChips(); render();
@@ -460,6 +485,7 @@ $('q').addEventListener('input', deb);
 $('maxPrice').addEventListener('input', deb);
 ['mall', 'sort', 'onlyCheap'].forEach(id => $(id).addEventListener('change', render));
 $('cats').addEventListener('click', e => { const c = e.target.closest('.chip'); if (!c) return; category = c.dataset.c; renderChips(); render(); });
+$('subclose').addEventListener('click', () => { $('subcard').hidden = true; try { localStorage.setItem('df:subClosed', '1'); } catch {} });
 $('fbtn').addEventListener('click', () => {
   const open = $('hd').classList.toggle('open');
   $('fbtn').textContent = open ? '필터 ▴' : '필터 ▾';

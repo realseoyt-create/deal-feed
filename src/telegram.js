@@ -3,6 +3,18 @@ const API = t => `https://api.telegram.org/bot${t}`;
 export const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 
 // buttons: [[{ text, url } | { text, callback_data }], ...] (inline keyboard 행 배열)
+// 여러 채팅에 같은 메시지 발송. 차단·탈퇴한 채팅(403)은 목록으로 돌려줌
+export async function broadcast({ botToken }, chatIds, html, buttons) {
+  const gone = [];
+  let ok = 0;
+  for (const id of chatIds) {
+    try { await send({ botToken, chatId: id }, html, buttons); ok++; }
+    catch (e) { if (/telegram 403/.test(e.message)) gone.push(id); else console.error('[broadcast]', id, e.message.slice(0, 120)); }
+  }
+  if (!ok && chatIds.length) throw new Error('모든 채팅 발송 실패');
+  return gone;
+}
+
 export async function send({ botToken, chatId }, html, buttons) {
   if (!botToken || !chatId) return false;
   const r = await fetch(`${API(botToken)}/sendMessage`, {

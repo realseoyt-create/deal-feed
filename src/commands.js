@@ -22,6 +22,7 @@ const HELP = `<b>꿀딜 봇 명령어</b>
 /quiet off — 방해 금지 끄기
 /list — 현재 설정 보기
 /status — 수집 상태
+/subs — 구독자 수
 (반영은 다음 수집 때, 최대 10~20분)`;
 
 // 반환: { text, changed }
@@ -61,21 +62,28 @@ function apply(cmd, arg, s) {
   }
 }
 
-export async function handleCommands(state, tg) {
+const WELCOME = `👋 <b>꿀딜 알림 구독 완료!</b>
+뽐뿌에서 다나와보다 확실히 싸거나 AI가 강력추천한 딜이 올라오면 여기로 알려드려요.
+🌐 전체 목록: https://realseoyt-create.github.io/deal-feed/
+그만 받으려면 /stop`;
+
+// subs: 구독자 배열(수정됨). 반환: 구독자 목록이 바뀌었는지
+export async function handleCommands(state, tg, subs = []) {
   let updates;
-  try { updates = await getUpdates(tg, state.tgOffset ?? 0); } catch (e) { console.error('[cmd]', e.message); return; }
-  if (!updates.length) return;
+  try { updates = await getUpdates(tg, state.tgOffset ?? 0); } catch (e) { console.error('[cmd]', e.message); return false; }
+  if (!updates.length) return false;
   state.tgOffset = updates.at(-1).update_id + 1;
 
   const s = readS();
-  let changed = false;
+  let changed = false, subsChanged = false;
   const reply = async (text) => { try { await send(tg, text); } catch (e) { console.error('[cmd]', e.message); } };
+  const replyTo = async (chatId, text) => { try { await send({ ...tg, chatId }, text); } catch (e) { console.error('[cmd]', e.message); } };
 
   for (const u of updates) {
-    // 알림의 "비교가 틀렸어요" 버튼
+    // 알림의 "비교가 틀렸어요" 버튼 (관리자만)
     const cb = u.callback_query;
     if (cb) {
-      if (String(cb.from.id) !== String(tg.chatId)) continue;
+      if (String(cb.from.id) !== String(tg.chatId)) { await answerCallback(tg, cb.id, '관리자만 쓸 수 있어요'); continue; }
       const m = /^wrong:(.+)$/.exec(cb.data ?? '');
       const d = m && state.deals.find(x => x.id === m[1]);
       await answerCallback(tg, cb.id, '반영했어요');
@@ -88,10 +96,26 @@ export async function handleCommands(state, tg) {
     }
 
     const msg = u.message;
-    if (!msg?.text || String(msg.chat.id) !== String(tg.chatId)) continue; // 다른 사람 메시지 무시
+    if (!msg?.text || msg.chat.type !== 'private') continue;
     const [rawCmd, ...rest] = msg.text.trim().split(/\s+/);
     const cmd = rawCmd.split('@')[0].toLowerCase(), arg = rest.join(' ').trim();
+    const chatId = String(msg.chat.id);
+
+    // 관리자 외 사용자: 구독/해지만 가능
+    if (chatId !== String(tg.chatId)) {
+      const i = subs.findIndex(x => String(x.id) === chatId);
+      if (cmd === '/start') {
+        if (i < 0) { subs.push({ id: chatId, at: new Date().toISOString() }); subsChanged = true; }
+        await replyTo(chatId, WELCOME);
+      } else if (cmd === '/stop') {
+        if (i >= 0) { subs.splice(i, 1); subsChanged = true; }
+        await replyTo(chatId, '🔕 구독을 해지했어요. 다시 받으려면 /start');
+      } else await replyTo(chatId, i >= 0 ? '알림 구독 중이에요. 그만 받으려면 /stop' : '알림을 받으려면 /start 를 눌러주세요.');
+      continue;
+    }
+
     if (cmd === '/start' || cmd === '/help') await reply(HELP);
+    else if (cmd === '/subs') await reply(`📲 구독자 ${subs.length}명 (관리자 제외)`);
     else if (cmd === '/list') {
       const a = s.alerts, q = s.quietHours;
       await reply(`<b>현재 설정</b>\n키워드: ${esc((a.keywords ?? []).join(', ') || '없음')}\n제외어: ${esc((a.excludeKeywords ?? []).join(', ') || '없음')}\n관심 카테고리: ${esc((a.categories ?? []).join(', '))} (≤ ${(a.maxPrice ?? 0).toLocaleString('ko-KR')}원)\n최소 할인율: ${a.minDiscountPct}%\n조회 상위: ${a.hotTopPercent}% · 추천 ≥ ${a.hotRecommend}\n방해 금지: ${q ? `${q.start}시~${q.end}시` : '꺼짐'}`);
@@ -105,4 +129,6 @@ export async function handleCommands(state, tg) {
     }
   }
   if (changed) { writeS(s); console.log('[cmd] settings.json 변경'); }
+  if (subsChanged) console.log(`[cmd] 구독자 ${subs.length}명`);
+  return subsChanged;
 }

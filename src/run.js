@@ -8,6 +8,7 @@ import { handleCommands } from './commands.js';
 import { loadHistory, applyHistory, saveHistory } from './history.js';
 import { send } from './telegram.js';
 import { aiVerdicts } from './verdict.js';
+import { loadSubs, saveSubs } from './subs.js';
 
 const FAIL_ALERT = 3; // 연속 실패 N회면 텔레그램 경고
 
@@ -15,7 +16,9 @@ const state = load();
 state.health ??= { fails: 0, lastOk: null, alerted: false };
 const tg0 = loadConfig().telegram;
 
-await handleCommands(state, tg0);
+const subs = loadSubs(tg0.botToken);
+const subsBefore = JSON.stringify(subs);
+await handleCommands(state, tg0, subs);
 const cfg = loadConfig(); // 명령으로 바뀐 설정 반영
 
 let ok = 0, errors = [];
@@ -41,7 +44,9 @@ applyHistory(state.deals, hist);
 // 다나와 비교 → AI 종합 판정 → 알림 (판정 결과가 알림에 반영되도록 이 순서)
 await enrichDanawa(state.deals);
 await aiVerdicts(state.deals);
-await notifyPending(state.deals, cfg);
+await notifyPending(state.deals, cfg, subs);
+if (JSON.stringify(subs) !== subsBefore) saveSubs(tg0.botToken, subs);
+state.subscriberCount = subs.length; // 웹 표시용 (숫자만, ID는 비공개)
 
 // ⑩ 고장 감시: 연속 실패 시 1회 경고, 복구되면 1회 알림
 const h = state.health;

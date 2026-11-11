@@ -1,6 +1,6 @@
 import { danawaLookup, sameProduct, cleanQuery } from './danawa.js';
 import { judgeMatch, categorizeBatch, extractPoints, hasGemini } from './gemini.js';
-import { send, esc } from './telegram.js';
+import { send, broadcast, esc } from './telegram.js';
 
 // notified: 0 미판정 · 1 발송 · 2 대상이었으나 텔레그램 미설정 · 3 다나와 확인 결과 탈락 · 4 방해 금지 시간이라 대기 중
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -157,11 +157,19 @@ function dealButtons(d) {
   return d.danawa ? [row, [{ text: '❌ 비교가 틀렸어요', callback_data: `wrong:${d.id}` }]] : [row];
 }
 
-export async function notifyPending(deals, { telegram, alerts = {}, quietHours }) {
+// subs: 구독자 배열 — 탈퇴(봇 차단)한 사람은 여기서 제거됨
+export async function notifyPending(deals, { telegram, alerts = {}, quietHours }, subs = []) {
   const hotV = hotThreshold(deals, alerts);
   const quiet = isQuiet(quietHours);
   const canSend = telegram?.botToken && telegram?.chatId;
   let sent = 0, dropped = 0, queued = 0;
+  const subIds = () => subs.map(s => String(s.id)).filter(id => id !== String(telegram?.chatId));
+  const prune = gone => { for (const id of gone) { const i = subs.findIndex(s => String(s.id) === id); if (i >= 0) subs.splice(i, 1); } };
+  // 관리자에게는 "비교 틀림" 버튼 포함, 구독자에게는 링크 버튼만
+  const sendAll = async (html, ownerButtons, subButtons) => {
+    await send(telegram, html, ownerButtons);
+    prune(await broadcast(telegram, subIds(), html, subButtons).catch(() => []));
+  };
 
   // 방해 금지가 끝났으면 밤사이 대기 딜을 한 번에 발송
   const waiting = deals.filter(d => d.notified === 4);
@@ -170,7 +178,8 @@ export async function notifyPending(deals, { telegram, alerts = {}, quietHours }
     const body = top.map(d => `• ${esc(d.alert ?? '')}\n<a href="${esc(d.url)}">${esc((d.product || d.title).slice(0, 45))}</a>${d.price ? ` · <b>${won(d.price)}</b>` : ''}${d.danawa ? ` · 다나와 대비 ${d.danawa.diffPct <= 0 ? -d.danawa.diffPct + '% 쌈' : d.danawa.diffPct + '% 비쌈'}` : ''}`).join('\n\n');
     const more = waiting.length > top.length ? `\n\n외 ${waiting.length - top.length}건` : '';
     try {
-      await send(telegram, `🌙 <b>방해 금지 시간에 모인 딜 ${waiting.length}건</b>\n\n${body}${more}`, [[{ text: '웹에서 전체 보기', url: WEB }]]);
+      const btn = [[{ text: '웹에서 전체 보기', url: WEB }]];
+      await sendAll(`🌙 <b>방해 금지 시간에 모인 딜 ${waiting.length}건</b>\n\n${body}${more}`, btn, btn);
       waiting.forEach(d => { d.notified = 1; });
       sent += waiting.length;
     } catch (e) { console.error('[notify]', e.message); }
@@ -188,7 +197,11 @@ export async function notifyPending(deals, { telegram, alerts = {}, quietHours }
 
     if (!canSend) { d.notified = 2; continue; }
     if (quiet) { d.notified = 4; queued++; continue; }
-    try { await send(telegram, `${c.reason.startsWith('🏆') ? `<b>${esc(c.reason)}</b>` : esc(c.reason)}\n${dealLines(d)}`, dealButtons(d)); d.notified = 1; sent++; }
+    try {
+      const html = `${c.reason.startsWith('🏆') ? `<b>${esc(c.reason)}</b>` : esc(c.reason)}\n${dealLines(d)}`;
+      await sendAll(html, dealButtons(d), [dealButtons(d)[0]]);
+      d.notified = 1; sent++;
+    }
     catch (e) { console.error('[notify]', e.message); break; }
   }
   console.log(`[notify] 발송 ${sent}건, 다나와 탈락 ${dropped}건, 방해금지 대기 ${queued}건 (조회 기준 ${hotV}/분)`);
