@@ -87,6 +87,15 @@ a.prod:hover{text-decoration:underline}
 .sub a{text-decoration:underline;text-underline-offset:2px}
 .row2{display:flex;gap:10px;font-size:12px;color:var(--muted);margin-top:7px;flex-wrap:wrap}
 .b{font-weight:700}.hot{color:var(--t1)}.rec{color:var(--accent)}
+.aiv{display:flex;gap:6px;align-items:baseline;margin-top:7px;font-size:13px;line-height:1.45}
+.aiv .v{flex:0 0 auto;font-size:11.5px;font-weight:800;padding:2px 8px;border-radius:999px;background:var(--soft);color:var(--muted)}
+.aiv.top .v{background:linear-gradient(90deg,#7b2ff7,#e5262b);color:#fff}
+.aiv.good .v{background:var(--t3bg);color:var(--t3)}
+.aiv.bad .v{background:var(--t4bg);color:var(--t4)}
+.aiv .r{color:var(--text)}
+.deal.top{border:2px solid #7b2ff7}
+.hcard.top{border-color:#7b2ff7}
+.hreason{font-size:13px;margin-top:8px;line-height:1.45}
 .divider{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px;font-weight:700;margin:14px 0}
 .divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--line)}
 .empty{text-align:center;color:var(--muted);padding:40px}
@@ -122,6 +131,7 @@ footer{padding:0 16px 30px;font-size:12px;color:var(--muted);line-height:1.6}
       <input type="number" id="maxPrice" class="adv" placeholder="최대 가격(원)" step="1000">
       <select id="sort" class="adv">
         <option value="new">최신순</option>
+        <option value="ai">AI 추천순</option>
         <option value="dn">할인율 큰 순</option>
         <option value="save">절약 금액 큰 순</option>
         <option value="hot">조회 급상승순</option>
@@ -171,6 +181,7 @@ function tier(d) {
 
 const SORT = {
   new: (a, b) => b.posted_at.localeCompare(a.posted_at),
+  ai: (a, b) => (b.ai?.score ?? -1) - (a.ai?.score ?? -1) || (off(b) ?? -999) - (off(a) ?? -999),
   dn: (a, b) => (off(b) ?? -999) - (off(a) ?? -999),
   save: (a, b) => (saved(b) ?? -1e12) - (saved(a) ?? -1e12),
   hot: (a, b) => b.views_per_min - a.views_per_min,
@@ -195,14 +206,24 @@ function renderAlertInfo(s) {
     </div>`;
 }
 
+const aiLine = d => {
+  if (!d.ai) return '';
+  const cls = { '강력추천': 'top', '추천': 'good', '비추천': 'bad' }[d.ai.verdict] ?? '';
+  return `<div class="aiv ${cls}"><span class="v">${d.ai.verdict === '강력추천' ? '🏆 ' : '🤖 '}${esc(d.ai.verdict)} ${d.ai.score}</span><span class="r">${esc(d.ai.reason)}</span></div>`;
+};
+
 function renderHero() {
-  const top = all.filter(d => off(d) >= 10 && Date.now() - new Date(d.posted_at) < 48 * 3600e3)
-    .sort(SORT.dn).slice(0, 3);
+  const recent = d => Date.now() - new Date(d.posted_at) < 48 * 3600e3;
+  // AI 강력추천을 먼저, 남는 자리는 할인율 큰 딜로
+  const strong = all.filter(d => recent(d) && d.ai?.verdict === '강력추천' && d.danawa).sort(SORT.ai);
+  const cheap = all.filter(d => recent(d) && off(d) >= 10 && !strong.includes(d) && d.ai?.verdict !== '비추천').sort(SORT.dn);
+  const top = [...strong, ...cheap].slice(0, 3);
   if (!top.length) { $('hero').innerHTML = ''; return; }
-  $('hero').innerHTML = `<h2>🔥 지금 가장 싼 딜</h2><div class="hero-grid">${top.map(d => {
+  $('hero').innerHTML = `<h2>${strong.length ? '🏆 AI 강력추천 · 지금 가장 싼 딜' : '🔥 지금 가장 싼 딜'}</h2><div class="hero-grid">${top.map(d => {
     const t = tier(d);
-    return `<a class="hcard ${t.cls}" href="${esc(d.url)}" target="_blank" rel="noopener">
-      <div><span class="hpct">-${off(d)}<small>%</small></span><span class="htier">${t.label}</span></div>
+    return `<a class="hcard ${t.cls} ${d.ai?.verdict === '강력추천' ? 'top' : ''}" href="${esc(d.url)}" target="_blank" rel="noopener">
+      <div><span class="hpct">-${off(d)}<small>%</small></span><span class="htier">${d.ai?.verdict === '강력추천' ? '🏆 강력추천' : t.label}</span></div>
+      ${d.ai ? `<div class="hreason">🤖 ${esc(d.ai.reason)}</div>` : ''}
       <div class="hname">${esc(d.mall ? `[${d.mall}] ` : '')}${esc(d.product || d.title)}</div>
       <div class="hprice"><b>${won(d.price)}</b><span class="strike">다나와 ${won(d.danawa.price)}</span></div>
       <span class="save">${won(saved(d))} 절약</span>${d.hist?.lowest ? ' <span class="save">📉 뽐뿌 역대 최저</span>' : ''}
@@ -243,7 +264,8 @@ function card(d) {
     if (d.hist.lowest) prices += `<span class="save t1">📉 뽐뿌 역대 최저</span>`;
     extra += `<div class="sub">뽐뿌 이전 최저 ${won(d.hist.prevMin)} · ${d.hist.count}회 등장</div>`;
   }
-  return `<div class="deal ${t ? 'has ' + t.cls : ''} ${isNew(d) ? 'new' : ''}">
+  extra += aiLine(d);
+  return `<div class="deal ${t ? 'has ' + t.cls : ''} ${isNew(d) ? 'new' : ''} ${d.ai?.verdict === '강력추천' ? 'top' : ''}">
     ${badge}
     <div class="body">
       <div class="row1"><span class="mall">${esc(d.mall ?? '')}</span><a class="prod" href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.product || d.title)}</a></div>

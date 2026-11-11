@@ -19,6 +19,8 @@ export function hotThreshold(deals, a) {
 export function candidate(d, a, hotV) {
   if (d.excluded_hint || (a.excludeKeywords ?? []).some(k => d.title.includes(k))) return null;
   const minDisc = -(a.minDiscountPct ?? 10);
+  if (d.ai?.verdict === '강력추천') return { reason: `🏆 AI 강력추천 — ${d.ai.reason}`, maxDiff: 0, needCompare: false };
+  if (d.ai?.verdict === '비추천') return null; // AI가 비추천하면 다른 조건에 걸려도 보내지 않음
   const kw = (a.keywords ?? []).find(k => d.title.includes(k));
   if (kw) return { reason: `키워드 "${kw}"`, maxDiff: 0, needCompare: false };
   if (d.hist?.lowest && d.hist.count >= 1) return { reason: `📉 뽐뿌 역대 최저 (이전 ${won(d.hist.prevMin)})`, maxDiff: 0, needCompare: false };
@@ -120,7 +122,8 @@ function dealLines(d) {
     ? `\n다나와 ${won(d.danawa.price)} 대비 <b>${d.danawa.diffPct <= 0 ? `${-d.danawa.diffPct}% 쌈` : `${d.danawa.diffPct}% 비쌈`}</b>${d.danawa.ratio !== 1 ? ` (수량 ×${d.danawa.ratio} 환산)` : ''}\n<i>비교: ${esc(d.danawa.name.slice(0, 40))}</i>`
     : '';
   const hist = d.hist ? `\n뽐뿌 이전 최저 ${won(d.hist.prevMin)} (${d.hist.count}회)` : '';
-  return `[${esc(d.mall ?? '')}] ${esc(d.product || d.title)}${price}${d.shipping ? ` (${esc(d.shipping)})` : ''}${dn}${hist}`;
+  const ai = d.ai && !String(d.alert ?? '').includes('AI 강력추천') ? `\n🤖 AI ${d.ai.verdict} ${d.ai.score}점: ${esc(d.ai.reason)}` : '';
+  return `[${esc(d.mall ?? '')}] ${esc(d.product || d.title)}${price}${d.shipping ? ` (${esc(d.shipping)})` : ''}${dn}${hist}${ai}`;
 }
 
 function dealButtons(d) {
@@ -160,7 +163,7 @@ export async function notifyPending(deals, { telegram, alerts = {}, quietHours }
 
     if (!canSend) { d.notified = 2; continue; }
     if (quiet) { d.notified = 4; queued++; continue; }
-    try { await send(telegram, `${esc(c.reason)}\n${dealLines(d)}`, dealButtons(d)); d.notified = 1; sent++; }
+    try { await send(telegram, `${c.reason.startsWith('🏆') ? `<b>${esc(c.reason)}</b>` : esc(c.reason)}\n${dealLines(d)}`, dealButtons(d)); d.notified = 1; sent++; }
     catch (e) { console.error('[notify]', e.message); break; }
   }
   console.log(`[notify] 발송 ${sent}건, 다나와 탈락 ${dropped}건, 방해금지 대기 ${queued}건 (조회 기준 ${hotV}/분)`);

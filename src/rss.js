@@ -25,7 +25,7 @@ export async function fetchFeed({ source, url }) {
     const pub = tag(it, 'pubDate');
     const posted = pub ? new Date(pub) : new Date();
     // 뽐뿌 RSS hits: [추천|조회|?|?] (관찰 기반 추정)
-    const [recommend = 0, views = 0] = (tag(it, 'hits')?.match(/\[([^\]]*)\]/)?.[1] ?? '').split('|').map(Number);
+    const [recommend = 0, views = 0, react2 = 0] = (tag(it, 'hits')?.match(/\[([^\]]*)\]/)?.[1] ?? '').split('|').map(Number);
     const ageMin = Math.max(5, (Date.now() - posted) / 60000);
     return {
       id: `${source}:${no ?? link}`, source, no, title, ...parsed,
@@ -33,7 +33,7 @@ export async function fetchFeed({ source, url }) {
       // 공개 저장소: 본문 요약은 저장하지 않음 (판정용 키워드만 사용)
       excluded_hint: /종료|품절|마감/.test(summary) || undefined,
       url: link,
-      recommend: recommend || 0, views: views || 0,
+      recommend: recommend || 0, views: views || 0, react2: react2 || 0, // react2: 의미 미확인(관찰용)
       views_per_min: Math.round((views || 0) / ageMin * 10) / 10,
       posted_at: posted.toISOString(),
     };

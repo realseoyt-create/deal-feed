@@ -8,6 +8,8 @@ let failStreak = 0; // 연속 실패가 쌓이면 이번 실행에서는 AI를 �
 export const hasGemini = () => !!process.env.GEMINI_API_KEY && failStreak < 2;
 export const CATEGORIES = ['생활용품', '식품', '디지털/가전', '패션/뷰티', '상품권/쿠폰', '여행', '기타'];
 
+export async function askJSON(prompt) { return ask(prompt); }
+
 async function ask(prompt) {
   // 무료 한도(분당 요청 수) 보호: 호출 간 최소 5초
   const wait = 5000 - (Date.now() - last); if (wait > 0) await sleep(wait);

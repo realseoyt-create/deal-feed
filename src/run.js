@@ -7,6 +7,7 @@ import { loadConfig } from './config.js';
 import { handleCommands } from './commands.js';
 import { loadHistory, applyHistory, saveHistory } from './history.js';
 import { send } from './telegram.js';
+import { aiVerdicts } from './verdict.js';
 
 const FAIL_ALERT = 3; // 연속 실패 N회면 텔레그램 경고
 
@@ -36,8 +37,10 @@ state.settings = { alerts: cfg.alerts, quietHours: cfg.quietHours ?? null };
 
 const hist = loadHistory();
 applyHistory(state.deals, hist);
-await notifyPending(state.deals, cfg);
+// 다나와 비교 → AI 종합 판정 → 알림 (판정 결과가 알림에 반영되도록 이 순서)
 await enrichDanawa(state.deals);
+await aiVerdicts(state.deals);
+await notifyPending(state.deals, cfg);
 
 // ⑩ 고장 감시: 연속 실패 시 1회 경고, 복구되면 1회 알림
 const h = state.health;
