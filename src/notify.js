@@ -1,5 +1,7 @@
 import { danawaLookup, sameProduct, cleanQuery } from './danawa.js';
-import { judgeMatch, categorizeBatch, extractPoints, hasGemini } from './gemini.js';
+import { judgeMatch, categorizeBatch, extractPoints, genQueries, hasGemini, budgetOk } from './gemini.js';
+import { productKey } from './history.js';
+import { personalReason, hid } from './personal.js';
 import { send, broadcast, esc } from './telegram.js';
 
 // notified: 0 미판정 · 1 발송 · 2 대상이었으나 텔레그램 미설정 · 3 다나와 확인 결과 탈락 · 4 방해 금지 시간이라 대기 중
@@ -17,7 +19,7 @@ export function hotThreshold(deals, a) {
 }
 
 export function candidate(d, a, hotV) {
-  if (d.excluded_hint || (a.excludeKeywords ?? []).some(k => d.title.includes(k))) return null;
+  if (d.ended || d.excluded_hint || (a.excludeKeywords ?? []).some(k => d.title.includes(k))) return null;
   const minDisc = -(a.minDiscountPct ?? 10);
   if (d.ai?.verdict === '강력추천') return { reason: `🏆 AI 강력추천 — ${d.ai.reason}`, maxDiff: 0, needCompare: false };
   if (d.ai?.verdict === '비추천') return null; // AI가 비추천하면 다른 조건에 걸려도 보내지 않음
@@ -41,7 +43,7 @@ export function isQuiet(q, now = new Date()) {
 // AI로 카테고리 분류 (아직 AI가 안 본 딜만, 1회 호출로 최대 40건)
 export async function aiCategorize(deals) {
   const targets = deals.filter(d => d.cat_by !== 'ai').slice(0, 40);
-  if (!hasGemini() || !targets.length) return;
+  if (!hasGemini() || !targets.length || !budgetOk('lite', 'low')) return;
   try {
     const cats = await categorizeBatch(targets.map(d => d.title));
     if (!cats) return;
@@ -53,7 +55,7 @@ export async function aiCategorize(deals) {
 // 본문 앞부분에서 구매 포인트 추출 (아직 안 뽑은 딜만, 1회 호출 최대 15건)
 export async function aiTips(deals) {
   const targets = deals.filter(d => d._body && !d.tips).slice(0, 15);
-  if (!hasGemini() || !targets.length) return;
+  if (!hasGemini() || !targets.length || !budgetOk('lite', 'low')) return;
   try {
     const out = await extractPoints(targets);
     if (!out) return;
@@ -69,44 +71,81 @@ export async function aiTips(deals) {
   } catch (e) { console.error('[tips]', e.message); }
 }
 
+// AI 검색어 준비: 아직 검색어가 없는 딜을 묶어서 1회 호출 (최대 20건)
+export async function prepareQueries(deals) {
+  // 예전 방식(제목 그대로 검색)으로 실패했던 최근 딜도 새 검색어로 한 번 더 시도
+  const retry = d => d.danawa_checked && !d.danawa && !d.danawa_wrong && Date.now() - new Date(d.posted_at) < 6 * HOUR;
+  const targets = deals.filter(d => d.price > 0 && !d.dq && (!d.danawa_checked || retry(d))).slice(0, 20);
+  if (!hasGemini() || !targets.length) return;
+  try {
+    const out = await genQueries(targets.map(d => d.title));
+    if (!out) return;
+    targets.forEach((d, i) => { d.dq = out[i]; if (retry(d)) d.danawa_checked = false; });
+    console.log(`[query] 검색어 ${targets.length}건 (비교 불가 ${out.filter(o => !o.comparable).length}건)`);
+  } catch (e) { console.error('[query]', e.message); }
+}
+
+// 같은 상품의 다나와 비교 결과 재사용 (상품 키 기준 3일) — 조회·AI 호출 절약
+const CACHE_TTL = 3 * 24 * HOUR;
+let dnCache = {};
+export const setDanawaCache = c => { dnCache = c ?? {}; };
+export function pruneDanawaCache() {
+  for (const k of Object.keys(dnCache)) if (Date.now() - dnCache[k].at > CACHE_TTL) delete dnCache[k];
+  return dnCache;
+}
+
+function applyMatch(d, m, ratio, by, type) {
+  const ref = Math.round(m.price * ratio);           // 딜과 같은 총량 기준 다나와 가격
+  const diffPct = Math.round((d.price - ref) / ref * 100);
+  if (diffPct < -85 || diffPct > 200) return null;   // 비현실적인 차이는 오매칭으로 간주
+  d.danawa = { price: ref, unitPrice: m.price, ratio, name: m.name, url: m.url, diffPct, by, type };
+  return diffPct;
+}
+
 // 다나와 비교 1건 → d.danawa 저장. 한 번 확인한 딜은 다시 조회 안 함
 async function checkDanawa(d) {
   if (d.danawa_wrong) return null;                       // 사용자가 "비교 틀림" 표시
   if (d.danawa_checked || !d.price) return d.danawa?.diffPct ?? null;
+  if (d.dq && !d.dq.comparable) { d.danawa_checked = true; return null; } // 묶음·여행 등 비교 무의미
+
+  // 같은 상품을 최근에 비교했으면 그 결과 재사용 (단, 같은 구성 비율일 때)
+  const key = productKey(d.product || d.title);
+  const hit = key && dnCache[key];
+  if (hit) { d.danawa_checked = true; return applyMatch(d, hit.item, hit.ratio, 'cache', hit.type); }
+
   d.danawa_checked = true;
   try {
     const q = cleanQuery(d.product || d.title);
-    const r = await danawaLookup(d.product || d.title);
+    const r = await danawaLookup(d.product || d.title, d.dq?.query);
     await sleep(1500);
-    // 가격이 0.1~5배 범위 밖이면 애초에 후보 제외
-    const cands = r.items.filter(i => d.price / i.price >= 0.1 && d.price / i.price <= 5).slice(0, 5);
+    // 가격이 0.03~5배 범위 밖이면 후보 제외 (낱개↔박스 비교를 위해 아래쪽은 넉넉히)
+    const cands = r.items.filter(i => d.price / i.price >= 0.03 && d.price / i.price <= 5).slice(0, 5);
     if (!cands.length) return null;
 
-    let m = null, ratio = 1, by = 'rule';
+    let m = null, ratio = 1, by = 'rule', type = 'exact';
     if (hasGemini()) {
       try {
         const j = await judgeMatch(d.title, d.price, cands);
-        if (j && j.match >= 0 && j.confidence >= 0.6) { m = cands[j.match]; ratio = j.ratio; by = 'ai'; }
-        else if (j) return null; // AI가 "같은 상품 없음" → 비교 안 함
+        const minConf = j?.type === 'similar' ? 0.5 : 0.6;
+        if (j && j.match >= 0 && j.confidence >= minConf) { m = cands[j.match]; ratio = j.ratio; by = 'ai'; type = j.type; }
+        else if (j) return null; // AI가 "맞는 상품 없음" → 비교 안 함
       } catch (e) { console.error('[gemini]', e.message); }
     }
     if (!m) {
       m = cands.find(i => sameProduct(q, i.name) && d.price / i.price >= 0.15 && d.price / i.price <= 3);
       if (!m) return null;
     }
-    const ref = Math.round(m.price * ratio);           // 딜과 같은 총량 기준 다나와 가격
-    const diffPct = Math.round((d.price - ref) / ref * 100);
-    if (diffPct < -85 || diffPct > 200) return null;   // 비현실적인 차이는 오매칭으로 간주
-    d.danawa = { price: ref, unitPrice: m.price, ratio, name: m.name, url: m.url, diffPct, by };
-    return diffPct;
+    const diff = applyMatch(d, m, ratio, by, type);
+    if (diff != null && key && by === 'ai') dnCache[key] = { item: { name: m.name, url: m.url, price: m.price }, ratio, type, at: Date.now() };
+    return diff;
   } catch (e) { console.error('[danawa]', e.message); return null; }
 }
 
 // 화면 표시용: 반응이 중간 이상인 최근 딜을 실행당 최대 N건 비교 (대량 조회 방지)
-export async function enrichDanawa(deals, limit = 6, budgetMs = 150e3) {
+export async function enrichDanawa(deals, limit = 8, budgetMs = 150e3) {
   const t0 = Date.now();
   for (const d of deals) {
-    if (!d.danawa || d.danawa.by === 'ai') continue;
+    if (!d.danawa || d.danawa.by === 'ai' || d.danawa.by === 'cache') continue;
     if (hasGemini()) d.recheck = true;                                                             // 규칙 매칭 결과는 AI로 다시 판정 (실제 검사 직전에 교체)
     else if (!sameProduct(cleanQuery(d.product || d.title), d.danawa.name) || !d.price) delete d.danawa;
   }
@@ -115,7 +154,8 @@ export async function enrichDanawa(deals, limit = 6, budgetMs = 150e3) {
   const median = vs.length ? vs[Math.floor(vs.length / 2)] : 0;
   const targets = [
     ...deals.filter(d => d.recheck),
-    ...recent.filter(d => !d.recheck && !d.danawa_checked && !d.danawa_wrong && d.price > 0 && d.views_per_min >= median)
+    // 비교 가능한 딜 우선, 그다음 반응 순 (반응 기준은 중간값의 절반까지 완화해 커버리지 확대)
+    ...recent.filter(d => !d.recheck && !d.danawa_checked && !d.danawa_wrong && d.price > 0 && d.dq?.comparable !== false && d.views_per_min >= median / 2)
       .sort((a, b) => b.views_per_min - a.views_per_min),
   ].slice(0, limit);
   // Actions 실행 시간 제한을 넘지 않도록 시간 예산 안에서만 처리, 남은 건 다음 실행으로
@@ -158,7 +198,7 @@ function dealButtons(d) {
 }
 
 // subs: 구독자 배열 — 탈퇴(봇 차단)한 사람은 여기서 제거됨
-export async function notifyPending(deals, { telegram, alerts = {}, quietHours }, subs = []) {
+export async function notifyPending(deals, { telegram, alerts = {}, quietHours, targets }, subs = []) {
   const hotV = hotThreshold(deals, alerts);
   const quiet = isQuiet(quietHours);
   const canSend = telegram?.botToken && telegram?.chatId;
@@ -204,6 +244,30 @@ export async function notifyPending(deals, { telegram, alerts = {}, quietHours }
     }
     catch (e) { console.error('[notify]', e.message); break; }
   }
-  console.log(`[notify] 발송 ${sent}건, 다나와 탈락 ${dropped}건, 방해금지 대기 ${queued}건 (조회 기준 ${hotV}/분)`);
+  // ── 개인 알림: 사람마다 키워드·목표가 (공통 알림으로 이미 받은 딜은 제외) ──
+  let personal = 0;
+  if (canSend && !quiet) {
+    const people = [
+      { id: String(telegram.chatId), p: { keywords: [], targets: targets ?? [] } }, // 관리자 키워드는 공통 알림에서 처리
+      ...subs.filter(s => String(s.id) !== String(telegram.chatId)).map(s => ({ id: String(s.id), p: s })),
+    ];
+    for (const d of deals) {
+      if (d.notified === 1 || d.ended || Date.now() - new Date(d.first_seen) > 3 * HOUR) continue;
+      for (const { id, p } of people) {
+        const reason = personalReason(d, p);
+        const h = hid(id);
+        if (!reason || d.ps?.includes(h)) continue;
+        try {
+          await send({ ...telegram, chatId: id }, `${esc(reason)}\n${dealLines(d)}`, [dealButtons(d)[0]]);
+          d.ps = [...(d.ps ?? []), h]; personal++;
+          if (reason.startsWith('🎯')) d.targetHit = true;
+        } catch (e) {
+          if (/telegram 403/.test(e.message)) prune([id]);
+          else console.error('[personal]', e.message.slice(0, 120));
+        }
+      }
+    }
+  }
+  console.log(`[notify] 발송 ${sent}건, 개인 ${personal}건, 다나와 탈락 ${dropped}건, 방해금지 대기 ${queued}건 (조회 기준 ${hotV}/분)`);
   return sent;
 }

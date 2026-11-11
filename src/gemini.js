@@ -12,7 +12,21 @@ export const CATEGORIES = ['생활용품', '식품', '디지털/가전', '패션
 
 export async function askJSON(prompt) { return ask(prompt, MODEL); }
 
+// ── 하루 사용량 관리 (한국 날짜 기준). 한도는 추정치라 환경변수로 조정 가능 ──
+const LIMITS = { lite: Number(process.env.GEMINI_LITE_DAILY) || 800, main: Number(process.env.GEMINI_DAILY) || 150 };
+const kstDate = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+let usage = { date: kstDate(), lite: 0, main: 0 };
+export function setUsage(u) { usage = u?.date === kstDate() ? { lite: 0, main: 0, ...u } : { date: kstDate(), lite: 0, main: 0 }; }
+export const getUsage = () => usage;
+// priority 'low'(분류·포인트)는 70%까지만, 'high'(매칭·판정)는 100%까지 사용
+export function budgetOk(kind = 'lite', priority = 'high') {
+  return usage[kind] / LIMITS[kind] < (priority === 'low' ? 0.7 : 1);
+}
+
 async function ask(prompt, model = LITE) {
+  const kind = model === MODEL ? 'main' : 'lite';
+  if (!budgetOk(kind)) throw new Error(`gemini 하루 예산 소진 (${kind} ${usage[kind]}/${LIMITS[kind]})`);
+  usage[kind]++;
   // 무료 한도(분당 요청 수) 보호: 호출 간 최소 5초
   const wait = 5000 - (Date.now() - last); if (wait > 0) await sleep(wait);
   last = Date.now();
@@ -33,24 +47,44 @@ async function ask(prompt, model = LITE) {
   return JSON.parse(j.candidates[0].content.parts[0].text.replace(/^```json\s*|\s*```$/g, ''));
 }
 
-// "딜 상품 = 다나와 후보 중 몇 번?" + 수량 비율
+// 다나와 검색어 생성 (여러 건 1회 호출) → [{query, comparable}] 또는 null
+// 제목 그대로 검색하면 "당일작업 생물"처럼 잘리거나 묶음 글이 엉망이 되는 문제 해결
+export async function genQueries(titles) {
+  if (!hasGemini() || !titles.length) return null;
+  const out = await ask(`핫딜 게시글 제목마다 가격비교 사이트(다나와) 검색어를 만들어라.
+- query: 브랜드 + 핵심 상품명 + 핵심 규격(용량·모델명)만. 쇼핑몰명·할인문구·배송·수식어(당일작업, 특가, 국내산 등) 제거. 2~5단어
+- comparable: 다나와에서 같은/비슷한 상품 가격 비교가 의미 있으면 true.
+  false인 경우: 여러 상품 묶음 글, 여행·숙박·티켓, 상품권·쿠폰·이벤트, "다양"·"모음" 글
+
+${titles.map((t, i) => `${i}. ${t}`).join('\n')}
+
+JSON 배열만 (길이 ${titles.length}, 입력 순서): [{"query":"...","comparable":true}]`);
+  if (!Array.isArray(out) || out.length !== titles.length) return null;
+  return out.map(o => ({ query: String(o?.query ?? '').trim().slice(0, 60), comparable: o?.comparable !== false }));
+}
+
+// "딜 상품 = 다나와 후보 중 몇 번?" + 수량 비율 + 일치 수준(exact/similar)
 export async function judgeMatch(dealTitle, dealPrice, candidates) {
   if (!hasGemini() || !candidates.length) return null;
-  const out = await ask(`쇼핑 핫딜 게시글 제목과 가격비교 사이트 검색 결과가 있다.
-딜과 "같은 상품"(같은 브랜드·모델·종류. 옷이면 재킷/조끼 구분, 식품이면 품목·등급·크기 동일)인 후보를 고르고,
-딜 구성과 후보 구성의 수량 비율을 계산하라.
+  const out = await ask(`쇼핑 핫딜 게시글 제목과 가격비교 사이트 검색 결과가 있다. 가격 비교 기준으로 쓸 후보를 골라라.
 
 딜: "${dealTitle}" / ${dealPrice}원
 후보:
 ${candidates.map((c, i) => `${i}. "${c.name}" / ${c.price}원`).join('\n')}
 
-규칙:
-- 같은 상품이 없으면 match = -1
-- ratio = 딜 총량 ÷ 후보 총량 (예: 딜 1kg 2팩, 후보 1kg → 2. 1+1은 2개로 계산). 모르면 1
-- 확신이 낮으면 confidence를 낮게
-JSON만: {"match": 정수, "ratio": 숫자, "confidence": 0~1, "reason": "20자 이내"}`);
+판단 기준:
+- exact: 같은 브랜드·같은 모델(전자제품·의류·화장품·가공식품은 이것만 인정)
+- similar: 신선식품·농수산물·생필품 원물(연어, 새우, 쌀, 과일, 계란, 휴지 원단 등)처럼 브랜드보다 "품목·규격·등급"이 가격을 결정하는 상품이면 브랜드가 달라도 같은 품목·비슷한 규격이면 인정
+- 종류가 다르면(재킷↔조끼, 고등어↔갓 페스토, 김치도시락↔일반도시락) 불인정
+- 옷·가전에서 딜 제목에 모델명이 없으면 같은 라인업 중 가장 가까운 것을 similar로 고르되 confidence 0.6 이하
+- ratio = 딜 총량 ÷ 후보 총량 (예: 딜 1kg 2팩·후보 1kg → 2, 딜 24개·후보 1개 → 24, 1+1은 2개). 후보 이름에 수량이 없고 가격으로 보아 묶음 판매로 보이면 판단해서 반영. 모르면 1
+- 맞는 후보가 없으면 match = -1
+JSON만: {"match": 정수, "type": "exact|similar", "ratio": 숫자, "confidence": 0~1, "reason": "20자 이내"}`);
   if (!Number.isInteger(out.match) || out.match < -1 || out.match >= candidates.length) return { match: -1 };
-  return { match: out.match, ratio: Number(out.ratio) > 0 ? Number(out.ratio) : 1, confidence: Number(out.confidence) || 0, reason: out.reason };
+  return {
+    match: out.match, type: out.type === 'similar' ? 'similar' : 'exact',
+    ratio: Number(out.ratio) > 0 ? Number(out.ratio) : 1, confidence: Number(out.confidence) || 0, reason: out.reason,
+  };
 }
 
 // 본문 앞부분에서 "왜 싼지" 구매 포인트 추출 (여러 건 1회 호출) → [{points:[..], unit:".."}] 또는 null

@@ -4,6 +4,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getUpdates, send, answerCallback, esc } from './telegram.js';
 import { CATEGORIES } from './gemini.js';
+import { parseTarget } from './personal.js';
 
 const SETTINGS = join(dirname(fileURLToPath(import.meta.url)), '..', 'settings.json');
 const readS = () => JSON.parse(readFileSync(SETTINGS, 'utf8').replace(/^﻿/, ''));
@@ -14,6 +15,7 @@ const HELP = `<b>꿀딜 봇 명령어</b>
 /unwatch 단어 — 키워드 삭제
 /exclude 단어 — 제외어 추가
 /include 단어 — 제외어 삭제
+/target 생수 10000 — 목표가 알림 (/untarget 생수 로 삭제)
 /cat 식품 — 관심 카테고리 켜기/끄기 (다시 보내면 해제)
 /cat — 카테고리 목록과 현재 선택 보기
 /min 숫자 — 다나와 대비 최소 할인율(%)
@@ -64,8 +66,45 @@ function apply(cmd, arg, s) {
 
 const WELCOME = `👋 <b>꿀딜 알림 구독 완료!</b>
 뽐뿌에서 다나와보다 확실히 싸거나 AI가 강력추천한 딜이 올라오면 여기로 알려드려요.
-🌐 전체 목록: https://realseoyt-create.github.io/deal-feed/
-그만 받으려면 /stop`;
+
+<b>나만의 알림도 설정할 수 있어요</b>
+/watch 기저귀 — 제목에 '기저귀'가 있으면 알림
+/target 생수 10000 — '생수'가 1만원 이하로 뜨면 알림
+/mylist — 내 설정 보기
+/stop — 구독 해지
+
+🌐 전체 목록: https://realseoyt-create.github.io/deal-feed/`;
+
+const SUB_HELP = `<b>내 알림 명령어</b>
+/watch 단어 — 내 키워드 추가 (최대 20개)
+/unwatch 단어 — 키워드 삭제
+/target 단어 가격 — 목표가 알림 (예: /target 휴지 15000)
+/untarget 단어 — 목표가 삭제
+/mylist — 내 설정 보기
+/stop — 구독 해지`;
+
+// 사람별 키워드·목표가 편집 (관리자·구독자 공용). p = { keywords, targets }
+function applyPersonal(cmd, arg, p) {
+  p.keywords ??= []; p.targets ??= [];
+  switch (cmd) {
+    case '/target': {
+      const t = parseTarget(arg);
+      if (!t) return { text: '이렇게 보내주세요: /target 생수 10000 (단어 + 가격)', changed: false };
+      if (p.targets.length >= 20 && !p.targets.some(x => x.kw === t.kw)) return { text: '목표가는 20개까지예요.', changed: false };
+      p.targets = [...p.targets.filter(x => x.kw !== t.kw), t];
+      return { text: `🎯 목표가 등록: <b>${esc(t.kw)}</b> ${t.max.toLocaleString('ko-KR')}원 이하로 뜨면 알려드려요`, changed: true };
+    }
+    case '/untarget':
+      p.targets = p.targets.filter(x => x.kw !== arg);
+      return { text: `🗑 목표가 삭제: ${esc(arg)}`, changed: true };
+    case '/mylist':
+      return {
+        text: `<b>내 알림 설정</b>\n키워드: ${esc(p.keywords.join(', ') || '없음')}\n목표가: ${p.targets.map(t => `${esc(t.kw)} ≤ ${t.max.toLocaleString('ko-KR')}원`).join(', ') || '없음'}`,
+        changed: false,
+      };
+    default: return null;
+  }
+}
 
 // subs: 구독자 배열(수정됨). 반환: 구독자 목록이 바뀌었는지
 export async function handleCommands(state, tg, subs = []) {
@@ -110,7 +149,27 @@ export async function handleCommands(state, tg, subs = []) {
       } else if (cmd === '/stop') {
         if (i >= 0) { subs.splice(i, 1); subsChanged = true; }
         await replyTo(chatId, '🔕 구독을 해지했어요. 다시 받으려면 /start');
-      } else await replyTo(chatId, i >= 0 ? '알림 구독 중이에요. 그만 받으려면 /stop' : '알림을 받으려면 /start 를 눌러주세요.');
+      } else if (i < 0) {
+        await replyTo(chatId, '알림을 받으려면 먼저 /start 를 눌러주세요.');
+      } else if (cmd === '/help') {
+        await replyTo(chatId, SUB_HELP);
+      } else if (cmd === '/watch' || cmd === '/unwatch') {
+        const sub = subs[i]; sub.keywords ??= [];
+        if (!arg) { await replyTo(chatId, '단어를 같이 보내주세요. 예: /watch 기저귀'); continue; }
+        if (cmd === '/watch') {
+          if (sub.keywords.length >= 20) { await replyTo(chatId, '키워드는 20개까지예요.'); continue; }
+          sub.keywords = [...new Set([...sub.keywords, arg.slice(0, 30)])];
+          await replyTo(chatId, `✅ 내 키워드 추가: <b>${esc(arg)}</b>`);
+        } else {
+          sub.keywords = sub.keywords.filter(k => k !== arg);
+          await replyTo(chatId, `🗑 내 키워드 삭제: ${esc(arg)}`);
+        }
+        subsChanged = true;
+      } else {
+        const r = applyPersonal(cmd, arg, subs[i]);
+        if (r?.changed) subsChanged = true;
+        await replyTo(chatId, r?.text ?? `모르는 명령이에요.\n\n${SUB_HELP}`);
+      }
       continue;
     }
 
@@ -122,6 +181,12 @@ export async function handleCommands(state, tg, subs = []) {
     } else if (cmd === '/status') {
       const h = state.health ?? {};
       await reply(`마지막 정상 수집: ${h.lastOk ? new Date(h.lastOk).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '-'}\n연속 실패: ${h.fails ?? 0}회\n보관 딜: ${state.deals.length}건`);
+    } else if (['/target', '/untarget', '/mylist'].includes(cmd)) {
+      // 관리자의 목표가는 settings.json 의 targets 에 저장
+      const p = { keywords: s.alerts.keywords ?? [], targets: s.targets ?? [] };
+      const r = applyPersonal(cmd, arg, p);
+      if (r.changed) { s.targets = p.targets; changed = true; }
+      await reply(r.text);
     } else {
       const r = apply(cmd, arg, s);
       if (r?.changed) changed = true;

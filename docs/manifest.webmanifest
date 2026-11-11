@@ -1,0 +1,14 @@
+{
+  "name": "꿀딜 피드",
+  "short_name": "꿀딜",
+  "description": "뽐뿌 핫딜 중 진짜 싼 것만 — 다나와 비교와 AI 추천",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f5f7",
+  "theme_color": "#1F3A5F",
+  "lang": "ko",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

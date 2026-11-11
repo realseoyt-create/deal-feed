@@ -121,7 +121,8 @@ h2.sec{font-size:17px;margin:26px 0 10px}
     <h2 class="sec">자주 묻는 질문</h2>
     <details class="faq"><summary>그만 받고 싶어요</summary><p>봇 채팅방에 <code>/stop</code> 을 보내면 바로 해지돼요. 다시 받으려면 <code>/start</code>.</p></details>
     <details class="faq"><summary>돈이 드나요? 내 정보가 보이나요?</summary><p>무료예요. 봇은 내 전화번호를 알 수 없고, 알림을 보내기 위한 채팅 번호만 암호화해서 보관해요.</p></details>
-    <details class="faq"><summary>알림 조건을 내 마음대로 바꿀 수 있나요?</summary><p>지금은 모든 구독자가 같은 알림(진짜 싼 딜·AI 강력추천)을 받아요. 나만의 키워드로 받고 싶다면 <b>🛠 내 봇 직접 만들기</b> 탭을 보세요.</p></details>
+    <details class="faq"><summary>내가 원하는 상품만 받을 수 있나요?</summary><p>네! 봇에게 <code>/watch 기저귀</code> 를 보내면 제목에 '기저귀'가 있는 딜을, <code>/target 생수 10000</code> 을 보내면 생수가 1만원 이하로 뜰 때 나에게만 알려줘요. 자세한 건 <b>⚙️ 봇 명령어</b> 탭.</p></details>
+    <details class="faq"><summary>폰 홈 화면에 앱처럼 추가할 수 있나요?</summary><p>네. 꿀딜 피드 웹을 폰에서 열고 — 아이폰은 Safari 공유 버튼 → <b>홈 화면에 추가</b>, 안드로이드는 Chrome 메뉴(⋮) → <b>홈 화면에 추가</b>(또는 앱 설치).</p></details>
     <details class="faq"><summary>"시작" 버튼이 안 보여요</summary><p>이미 대화한 적이 있으면 버튼 대신 입력창이 보여요. 입력창에 <code>/start</code> 를 쳐서 보내면 돼요.</p></details>
   </section>
 
@@ -132,7 +133,13 @@ h2.sec{font-size:17px;margin:26px 0 10px}
     <table>
       <tr><td>/start</td><td>알림 구독 시작</td></tr>
       <tr><td>/stop</td><td>알림 구독 해지</td></tr>
+      <tr><td>/watch 기저귀</td><td>내 키워드 추가 — 제목에 있으면 나에게만 알림 (최대 20개)</td></tr>
+      <tr><td>/unwatch 기저귀</td><td>내 키워드 삭제</td></tr>
+      <tr><td>/target 생수 10000</td><td>🎯 목표가 — '생수'가 1만원 이하로 뜨면 알림 (<code>1만</code>도 가능)</td></tr>
+      <tr><td>/untarget 생수</td><td>목표가 삭제</td></tr>
+      <tr><td>/mylist</td><td>내 키워드·목표가 보기</td></tr>
     </table>
+    <div class="tip">💡 일요일 저녁 8시에는 "이번 주 역대급 딜 TOP 5"가 와요.</div>
     <h2 class="sec">관리자(봇 주인)만</h2>
     <table>
       <tr><td>/watch 생수</td><td>관심 키워드 추가 — 제목에 들어 있으면 알림</td></tr>

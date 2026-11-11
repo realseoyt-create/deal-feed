@@ -48,8 +48,9 @@ function sizesCompatible(a, b) {
 }
 
 // 결과가 없으면 검색어를 줄여서 최대 2번 더 시도
-export async function danawaLookup(product) {
-  const words = cleanQuery(product).split(' ');
+// exactQuery: AI가 만든 검색어가 있으면 정제 없이 그대로 우선 사용
+export async function danawaLookup(product, exactQuery) {
+  const words = (exactQuery || cleanQuery(product)).split(' ').filter(Boolean);
   let r;
   for (const n of [words.length, 4, 2]) {
     if (n > words.length || (r && n === words.length)) continue;

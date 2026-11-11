@@ -1,6 +1,6 @@
 // AI 종합 판정: 다나와 대비·뽐뿌 역대가·반응 추이를 함께 보고 "강력추천" 여부와 이유를 만든다
 // 실행당 Gemini 1회 호출(최대 8건 묶음) → 무료 한도 부담 최소화
-import { askJSON, hasGemini } from './gemini.js';
+import { askJSON, hasGemini, budgetOk } from './gemini.js';
 
 const VERDICTS = ['강력추천', '추천', '보통', '비추천'];
 const HOUR = 3600e3;
@@ -26,7 +26,7 @@ function facts(d) {
 export async function aiVerdicts(deals, max = 8) {
   // 상위 모델은 하루 한도가 작아 20분에 1번만 판정 (나머지 실행은 건너뜀)
   if (new Date().getUTCMinutes() % 20 >= 10) return;
-  if (!hasGemini()) return;
+  if (!hasGemini() || !budgetOk('main')) return;
   const targets = deals
     .filter(d => Date.now() - new Date(d.posted_at) < 24 * HOUR && hasEvidence(d) && d.ai?.fp !== fingerprint(d))
     .sort((a, b) => (a.danawa?.diffPct ?? 0) - (b.danawa?.diffPct ?? 0))

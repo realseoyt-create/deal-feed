@@ -2,13 +2,15 @@
 // 텔레그램 명령 처리 → 수집 → 역대가 → 알림 → 표시용 다나와 비교 → 저장 → 고장 감시
 import { load, save, merge } from './store.js';
 import { FEEDS, fetchFeed } from './rss.js';
-import { notifyPending, enrichDanawa, aiCategorize, aiTips } from './notify.js';
+import { notifyPending, enrichDanawa, aiCategorize, aiTips, prepareQueries, setDanawaCache, pruneDanawaCache } from './notify.js';
 import { loadConfig } from './config.js';
 import { handleCommands } from './commands.js';
 import { loadHistory, applyHistory, saveHistory } from './history.js';
 import { send } from './telegram.js';
 import { aiVerdicts } from './verdict.js';
 import { loadSubs, saveSubs } from './subs.js';
+import { setUsage, getUsage } from './gemini.js';
+import { weeklyReport, recordBest } from './weekly.js';
 
 const FAIL_ALERT = 3; // 연속 실패 N회면 텔레그램 경고
 
@@ -16,6 +18,7 @@ const state = load();
 state.health ??= { fails: 0, lastOk: null, alerted: false };
 const tg0 = loadConfig().telegram;
 
+setUsage(state.geminiUsage);
 const subs = loadSubs(tg0.botToken);
 const subsBefore = JSON.stringify(subs);
 await handleCommands(state, tg0, subs);
@@ -42,11 +45,15 @@ state.settings = { alerts: cfg.alerts, quietHours: cfg.quietHours ?? null };
 const hist = loadHistory();
 applyHistory(state.deals, hist);
 // 다나와 비교 → AI 종합 판정 → 알림 (판정 결과가 알림에 반영되도록 이 순서)
+setDanawaCache(state.dnCache);
+await prepareQueries(state.deals);
 await enrichDanawa(state.deals);
 await aiVerdicts(state.deals);
 await notifyPending(state.deals, cfg, subs);
 if (JSON.stringify(subs) !== subsBefore) saveSubs(tg0.botToken, subs);
 state.subscriberCount = subs.length; // 웹 표시용 (숫자만, ID는 비공개)
+recordBest(state);
+await weeklyReport(state, cfg.telegram, subs);
 
 // ⑩ 고장 감시: 연속 실패 시 1회 경고, 복구되면 1회 알림
 const h = state.health;
@@ -61,6 +68,9 @@ if (ok) {
   }
 }
 
+state.dnCache = pruneDanawaCache();
+state.geminiUsage = getUsage();
+console.log(`[gemini] 오늘 사용량 lite ${state.geminiUsage.lite} · main ${state.geminiUsage.main}`);
 save(state);
 saveHistory(hist);
 if (!ok) process.exitCode = 1;

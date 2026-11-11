@@ -34,11 +34,15 @@ export function merge(state, items) {
     if (old?.cat_by === 'ai') it.category = old.category;
     if (old) Object.assign(old, it, {
       first_seen: old.first_seen, notified: old.notified, alert: old.alert,
-      danawa: old.danawa, danawa_checked: old.danawa_checked, hist: old.hist, ai: old.ai, snaps: old.snaps, tips: old.tips, last_seen: now,
+      danawa: old.danawa, danawa_checked: old.danawa_checked, hist: old.hist, ai: old.ai, snaps: old.snaps, tips: old.tips, dq: old.dq, ended: old.ended, targetHit: old.targetHit, ps: old.ps, last_seen: now,
     });
     else { byId.set(it.id, { ...it, first_seen: now, last_seen: now, notified: 0 }); added++; }
   }
   state.deals = [...byId.values()];
+  // 종료 감지: 작성자가 제목에 [종료]·품절 등을 붙였거나 본문 앞부분에 종료 안내가 있으면
+  for (const d of state.deals) {
+    if (/(\[|\()\s*(종료|품절|마감|매진)\s*(\]|\))|^\s*(종료|품절|마감)\b/.test(d.title) || d.excluded_hint) d.ended = true;
+  }
   // 반응 추이: 이번에 RSS에서 본 딜마다 (시각, 조회, 추천) 스냅샷 누적 (최대 8개)
   const seen = new Set(items.map(i => i.id));
   for (const d of state.deals) {
