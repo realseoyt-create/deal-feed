@@ -4,7 +4,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getUpdates, send, answerCallback, esc } from './telegram.js';
 import { CATEGORIES } from './gemini.js';
-import { parseTarget } from './personal.js';
+import { parseTarget, parseCycle } from './personal.js';
 
 const SETTINGS = join(dirname(fileURLToPath(import.meta.url)), '..', 'settings.json');
 const readS = () => JSON.parse(readFileSync(SETTINGS, 'utf8').replace(/^﻿/, ''));
@@ -16,6 +16,7 @@ const HELP = `<b>꿀딜 봇 명령어</b>
 /exclude 단어 — 제외어 추가
 /include 단어 — 제외어 삭제
 /target 생수 10000 — 목표가 알림 (/untarget 생수 로 삭제)
+/cycle 휴지 60 — 재구매 주기 알림 (/bought 휴지 로 초기화)
 /cat 식품 — 관심 카테고리 켜기/끄기 (다시 보내면 해제)
 /cat — 카테고리 목록과 현재 선택 보기
 /min 숫자 — 다나와 대비 최소 할인율(%)
@@ -80,6 +81,8 @@ const SUB_HELP = `<b>내 알림 명령어</b>
 /unwatch 단어 — 키워드 삭제
 /target 단어 가격 — 목표가 알림 (예: /target 휴지 15000)
 /untarget 단어 — 목표가 삭제
+/cycle 휴지 60 — 재구매 주기 알림 (60일마다)
+/bought 휴지 — 샀어요 (주기 다시 시작)
 /mylist — 내 설정 보기
 /stop — 구독 해지`;
 
@@ -97,9 +100,26 @@ function applyPersonal(cmd, arg, p) {
     case '/untarget':
       p.targets = p.targets.filter(x => x.kw !== arg);
       return { text: `🗑 목표가 삭제: ${esc(arg)}`, changed: true };
+    case '/cycle': {
+      const c = parseCycle(arg);
+      if (!c) return { text: '이렇게 보내주세요: /cycle 휴지 60 (단어 + 7~365일)', changed: false };
+      p.cycles ??= [];
+      if (p.cycles.length >= 10 && !p.cycles.some(x => x.kw === c.kw)) return { text: '재구매 주기는 10개까지예요.', changed: false };
+      p.cycles = [...p.cycles.filter(x => x.kw !== c.kw), { ...c, last: new Date().toISOString() }];
+      return { text: `🔁 재구매 주기 등록: <b>${esc(c.kw)}</b> ${c.days}일마다 그동안 올라온 싼 딜과 함께 알려드려요\n샀으면 /bought ${esc(c.kw)}`, changed: true };
+    }
+    case '/bought': {
+      const c = (p.cycles ?? []).find(x => x.kw === arg);
+      if (!c) return { text: `"${esc(arg)}" 주기가 없어요. /mylist 로 확인`, changed: false };
+      c.last = new Date().toISOString();
+      return { text: `✅ ${esc(arg)} 구매 기록! ${c.days}일 뒤에 다시 알려드릴게요`, changed: true };
+    }
+    case '/uncycle':
+      p.cycles = (p.cycles ?? []).filter(x => x.kw !== arg);
+      return { text: `🗑 재구매 주기 삭제: ${esc(arg)}`, changed: true };
     case '/mylist':
       return {
-        text: `<b>내 알림 설정</b>\n키워드: ${esc(p.keywords.join(', ') || '없음')}\n목표가: ${p.targets.map(t => `${esc(t.kw)} ≤ ${t.max.toLocaleString('ko-KR')}원`).join(', ') || '없음'}`,
+        text: `<b>내 알림 설정</b>\n키워드: ${esc(p.keywords.join(', ') || '없음')}\n목표가: ${p.targets.map(t => `${esc(t.kw)} ≤ ${t.max.toLocaleString('ko-KR')}원`).join(', ') || '없음'}\n재구매 주기: ${(p.cycles ?? []).map(c => `${esc(c.kw)} ${c.days}일`).join(', ') || '없음'}`,
         changed: false,
       };
     default: return null;
@@ -181,11 +201,11 @@ export async function handleCommands(state, tg, subs = []) {
     } else if (cmd === '/status') {
       const h = state.health ?? {};
       await reply(`마지막 정상 수집: ${h.lastOk ? new Date(h.lastOk).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '-'}\n연속 실패: ${h.fails ?? 0}회\n보관 딜: ${state.deals.length}건`);
-    } else if (['/target', '/untarget', '/mylist'].includes(cmd)) {
-      // 관리자의 목표가는 settings.json 의 targets 에 저장
-      const p = { keywords: s.alerts.keywords ?? [], targets: s.targets ?? [] };
+    } else if (['/target', '/untarget', '/mylist', '/cycle', '/bought', '/uncycle'].includes(cmd)) {
+      // 관리자의 목표가·재구매 주기는 settings.json 에 저장
+      const p = { keywords: s.alerts.keywords ?? [], targets: s.targets ?? [], cycles: s.cycles ?? [] };
       const r = applyPersonal(cmd, arg, p);
-      if (r.changed) { s.targets = p.targets; changed = true; }
+      if (r.changed) { s.targets = p.targets; s.cycles = p.cycles; changed = true; }
       await reply(r.text);
     } else {
       const r = apply(cmd, arg, s);

@@ -1,4 +1,5 @@
 import { parseTitle, categorize } from './parse.js';
+import { parseShipping, parseQty, effectivePrice } from './qty.js';
 
 export const FEEDS = [
   { source: 'ppomppu', url: 'https://www.ppomppu.co.kr/rss.php?id=ppomppu' },
@@ -27,7 +28,12 @@ export async function fetchFeed({ source, url }) {
     // 뽐뿌 RSS hits: [추천|조회|?|?] (관찰 기반 추정)
     const [recommend = 0, views = 0, react2 = 0] = (tag(it, 'hits')?.match(/\[([^\]]*)\]/)?.[1] ?? '').split('|').map(Number);
     const ageMin = Math.max(5, (Date.now() - posted) / 60000);
+    // 배송비·용량 해석 (애매하면 null) → 실구매가
+    const ship = parseShipping(parsed.shipping, parsed.price);
+    const qty = parseQty(title);
+    const eff = effectivePrice({ price: parsed.price, ship });
     return {
+      ship, qty: qty ?? undefined, eff,
       id: `${source}:${no ?? link}`, source, no, title, ...parsed,
       category: categorize(parsed.product, summary),
       // 공개 저장소: 본문 원문은 파일에 저장하지 않음 (_로 시작 → 저장 직전 제거)

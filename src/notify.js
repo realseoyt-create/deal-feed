@@ -2,6 +2,7 @@ import { danawaLookup, sameProduct, cleanQuery } from './danawa.js';
 import { judgeMatch, categorizeBatch, extractPoints, genQueries, hasGemini, budgetOk } from './gemini.js';
 import { productKey } from './history.js';
 import { personalReason, hid } from './personal.js';
+import { effectivePrice, unitPrice, detectConds } from './qty.js';
 import { send, broadcast, esc } from './telegram.js';
 
 // notified: 0 미판정 · 1 발송 · 2 대상이었으나 텔레그램 미설정 · 3 다나와 확인 결과 탈락 · 4 방해 금지 시간이라 대기 중
@@ -26,8 +27,9 @@ export function candidate(d, a, hotV) {
   const kw = (a.keywords ?? []).find(k => d.title.includes(k));
   if (kw) return { reason: `키워드 "${kw}"`, maxDiff: 0, needCompare: false };
   if (d.hist?.lowest && d.hist.count >= 1) return { reason: `📉 뽐뿌 역대 최저 (이전 ${won(d.hist.prevMin)})`, maxDiff: 0, needCompare: false };
+  if (d.hist?.unitLowest) { const up = unitPrice(d); return { reason: `📏 단가 역대 최저 (${up.label}당 ${won(up.value)}, 이전 ${won(d.hist.unitPrev)})`, maxDiff: 0, needCompare: false }; }
   if (d.recommend >= (a.hotRecommend ?? 3)) return { reason: `👍 추천 ${d.recommend}`, maxDiff: 0, needCompare: false };
-  if ((a.categories ?? []).includes(d.category) && d.price != null && d.price <= (a.maxPrice ?? Infinity))
+  if ((a.categories ?? []).includes(d.category) && d.price != null && (effectivePrice(d) ?? d.price) <= (a.maxPrice ?? Infinity))
     return { reason: `관심 카테고리 ${d.category}`, maxDiff: minDisc, needCompare: false };
   if (d.views_per_min >= hotV) return { reason: `🔥 조회 상위 (${d.views_per_min}/분)`, maxDiff: minDisc, needCompare: true };
   return null;
@@ -71,6 +73,17 @@ export async function aiTips(deals) {
   } catch (e) { console.error('[tips]', e.message); }
 }
 
+// 할인 조건 태그 (첫구매·멤버십·특정 결제·앱 전용) — 제목·본문 앞부분·AI 포인트에서 규칙으로 검출
+// 본문은 RSS에 떠 있는 동안만 있으므로, 그때 검출한 결과를 유지(합집합)
+export function tagConds(deals) {
+  for (const d of deals) {
+    const found = detectConds(d.title, d._body, ...(d.tips?.points ?? []), d.tips?.caution, d.ship?.cond);
+    if (d.ship?.cond) found.push('조건부 배송');
+    const all = [...new Set([...(d.conds ?? []), ...found])];
+    if (all.length) d.conds = all; else delete d.conds;
+  }
+}
+
 // AI 검색어 준비: 아직 검색어가 없는 딜을 묶어서 1회 호출 (최대 20건)
 export async function prepareQueries(deals) {
   // 예전 방식(제목 그대로 검색)으로 실패했던 최근 딜도 새 검색어로 한 번 더 시도
@@ -111,7 +124,9 @@ export const confirmedOff = d => (d.danawa && d.danawa.type !== 'similar' ? -d.d
 function applyMatch(d, m, ratio, by, type) {
   if (type !== 'similar' && !brandInTitle(m.name, d.title)) type = 'similar';
   const ref = Math.round(m.price * ratio);           // 딜과 같은 총량 기준 다나와 가격
-  const diffPct = Math.round((d.price - ref) / ref * 100);
+  // 딜은 실구매가(배송비 포함)로 비교. 다나와 목록가는 배송비 별도일 수 있어 딜에 불리한 쪽(보수적) 비교
+  const mine = effectivePrice(d) ?? d.price;
+  const diffPct = Math.round((mine - ref) / ref * 100);
   if (diffPct < -85 || diffPct > 200) return null;   // 비현실적인 차이는 오매칭으로 간주
   d.danawa = { price: ref, unitPrice: m.price, ratio, name: m.name, url: m.url, diffPct, by, type };
   return diffPct;
@@ -160,8 +175,12 @@ async function checkDanawa(d) {
 export async function enrichDanawa(deals, limit = 8, budgetMs = 150e3) {
   const t0 = Date.now();
   for (const d of deals) {
-    // 기존 결과에도 브랜드 검사 소급 적용
+    // 기존 결과에도 브랜드 검사·실구매가 기준 할인율 소급 적용
     if (d.danawa && d.danawa.type !== 'similar' && !brandInTitle(d.danawa.name, d.title)) d.danawa.type = 'similar';
+    if (d.danawa && d.price) {
+      const mine = effectivePrice(d) ?? d.price;
+      d.danawa.diffPct = Math.round((mine - d.danawa.price) / d.danawa.price * 100);
+    }
     if (!d.danawa || d.danawa.by === 'ai' || d.danawa.by === 'cache') continue;
     if (hasGemini()) d.recheck = true;                                                             // 규칙 매칭 결과는 AI로 다시 판정 (실제 검사 직전에 교체)
     else if (!sameProduct(cleanQuery(d.product || d.title), d.danawa.name) || !d.price) delete d.danawa;
@@ -193,7 +212,12 @@ export async function enrichDanawa(deals, limit = 8, budgetMs = 150e3) {
 }
 
 function dealLines(d) {
-  const price = d.price == null ? '' : d.price === 0 ? ' · 무료' : ` · <b>${won(d.price)}</b>`;
+  const eff = effectivePrice(d);
+  const price = d.price == null ? '' : d.price === 0 ? ' · 무료'
+    : ` · <b>${won(eff)}</b>${d.ship?.cost > 0 ? ` (배송비 ${won(d.ship.cost)} 포함)` : ''}`;
+  const up = unitPrice(d);
+  const unit = up ? `\n📏 ${up.label}당 ${won(up.value)}${d.hist?.unitPrev ? ` (이전 최저 ${won(d.hist.unitPrev)})` : ''}` : '';
+  const conds = d.conds?.length ? `\n🔒 조건: ${esc(d.conds.join(', '))}` : '';
   const dn = d.danawa
     ? `\n${d.danawa.type === 'similar' ? '(참고) 비슷한 상품 ' : ''}다나와 ${won(d.danawa.price)} 대비 <b>${d.danawa.diffPct <= 0 ? `${-d.danawa.diffPct}% 쌈` : `${d.danawa.diffPct}% 비쌈`}</b>${d.danawa.ratio !== 1 ? ` (수량 ×${d.danawa.ratio} 환산)` : ''}\n<i>비교: ${esc(d.danawa.name.slice(0, 40))}</i>`
     : '';
@@ -205,7 +229,8 @@ function dealLines(d) {
     : '';
   // 본문 앞부분은 비공개 텔레그램에만 (공개 웹·저장소에는 없음)
   const body = d._body ? `\n<blockquote>${esc(d._body.slice(0, 160))}${d._body.length > 160 ? '…' : ''}</blockquote>` : '';
-  return `[${esc(d.mall ?? '')}] ${esc(d.product || d.title)}${price}${d.shipping ? ` (${esc(d.shipping)})` : ''}${dn}${hist}${tips}${ai}${body}`;
+  const shipTxt = d.ship?.cost > 0 ? '' : d.shipping ? ` (${esc(d.shipping)})` : '';
+  return `[${esc(d.mall ?? '')}] ${esc(d.product || d.title)}${price}${shipTxt}${dn}${unit}${hist}${conds}${tips}${ai}${body}`;
 }
 
 function dealButtons(d) {

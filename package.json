@@ -7,7 +7,8 @@
   "scripts": {
     "once": "node src/run.js",
     "preview": "node src/preview.js",
-    "audit": "node src/audit.js"
+    "audit": "node src/audit.js",
+    "test": "node --test test/"
   },
   "engines": { "node": ">=20" }
 }

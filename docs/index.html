@@ -138,6 +138,14 @@ a.prod:hover{text-decoration:underline}
 .tips span.unit{background:var(--t3bg);color:var(--t3)}
 .tips span.warn{background:var(--t1bg);color:var(--t1)}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .tips span:not(.unit):not(.warn){background:#3a3112;color:#f5d36b}}
+/* 실구매가·단위가격·조건·추이 */
+.shipnote{font-size:11.5px;color:var(--muted)}
+.unitchip{font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--soft);color:var(--text)}
+.unitchip.best{background:var(--t3bg);color:var(--t3)}
+.conds{display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-top:6px;font-size:12px;color:var(--muted)}
+.conds span{padding:1px 7px;border-radius:6px;border:1px solid var(--line);color:var(--text)}
+.spark{display:flex;align-items:center;gap:8px;margin-top:6px;color:var(--navy);font-size:11.5px}
+.spark span{color:var(--muted)}
 /* 종료·오래된 딜, 찜·공유 */
 .deal.ended{opacity:.5}
 .deal.ended .now{text-decoration:line-through}
@@ -194,6 +202,7 @@ footer{padding:0 16px 30px;font-size:12px;color:var(--muted);line-height:1.6}
         <option value="cheap">낮은 가격순</option>
       </select>
       <label class="tog adv"><input type="checkbox" id="onlyCheap"> 다나와보다 싼 딜만</label>
+      <label class="tog adv" title="첫구매·멤버십·특정 카드 등 조건이 없는 딜"><input type="checkbox" id="noCond"> 누구나 이 가격</label>
     </div>
     <div class="chips adv" id="cats"></div>
   </div>
@@ -245,10 +254,33 @@ const saveFavs = () => { try { localStorage.setItem('df:favs', JSON.stringify(fa
 function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove('show'), 1600); }
 const isEnded = d => d.ended;
 
+// 단위가격 (서버 qty.js 와 같은 계산: 실구매가 ÷ (총량/기준량))
+function unitOf(d) {
+  const q = d.qty, p = d.eff ?? d.price;
+  if (!q || !(p > 0)) return null;
+  const v = p / (q.amount / q.per);
+  return { value: v >= 100 ? Math.round(v) : Math.round(v * 10) / 10, label: q.perLabel };
+}
+
+// 가격 추이 미니 그래프 (같은 상품이 뽐뿌에 올라왔던 실구매가 기록, 마지막 점 = 이번 딜)
+function spark(series, now) {
+  const W = 140, H = 30, P = 3;
+  const ys = series.map(s => s[1]);
+  const lo = Math.min(...ys), hi = Math.max(...ys), span = hi - lo || 1;
+  const pts = ys.map((y, i) => [P + i * (W - 2 * P) / Math.max(1, ys.length - 1), H - P - (y - lo) / span * (H - 2 * P)]);
+  const path = pts.map((p, i) => (i ? 'L' : 'M') + p[0].toFixed(1) + ',' + p[1].toFixed(1)).join('');
+  const last = pts.at(-1);
+  const label = `뽐뿌 가격 기록 ${ys.length}회 · 최저 ${won(lo)} · 최고 ${won(hi)}`;
+  return `<div class="spark" title="${esc(label)}"><svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">
+    <path d="${path}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+    <circle cx="${last[0].toFixed(1)}" cy="${last[1].toFixed(1)}" r="3" fill="var(--t1)"/></svg>
+    <span>${esc(label)}</span></div>`;
+}
+
 // 할인 등급: 다나와 최저가 대비
 const off = d => d.danawa ? -d.danawa.diffPct : null;              // 양수 = 싸다 (표시용, 비슷한 상품 포함)
 const offC = d => d.danawa && d.danawa.type !== 'similar' ? -d.danawa.diffPct : null; // 확정 할인 (같은 상품만)
-const saved = d => d.danawa ? d.danawa.price - d.price : null;
+const saved = d => d.danawa ? d.danawa.price - (d.eff ?? d.price) : null; // 실구매가 기준
 function tier(d) {
   const o = off(d);
   if (o == null) return null;
@@ -425,7 +457,7 @@ function renderHero() {
         <div><span class="hscore">${d.ai.score}<small>점</small></span><span class="htier" style="background:#7b2ff7">${esc(d.ai.verdict)}</span></div>
         <div class="hreason">🤖 ${esc(d.ai.reason)}</div>
         <div class="hname">${esc(d.mall ? `[${d.mall}] ` : '')}${esc(d.product || d.title)}</div>
-        <div class="hprice"><b>${won(d.price) || '가격 다양'}</b>${d.danawa ? `<span class="strike">다나와 ${won(d.danawa.price)}</span>` : ''}</div>
+        <div class="hprice"><b>${won(d.eff ?? d.price) || '가격 다양'}</b>${d.danawa ? `<span class="strike">다나와 ${won(d.danawa.price)}</span>` : ''}</div>
         ${tipsLine(d)}
       </a>`).join('')}</div>`;
     return;
@@ -437,7 +469,7 @@ function renderHero() {
       ${d.ai ? `<div class="hreason">🤖 ${esc(d.ai.reason)}</div>` : ''}
       ${tipsLine(d)}
       <div class="hname">${esc(d.mall ? `[${d.mall}] ` : '')}${esc(d.product || d.title)}</div>
-      <div class="hprice"><b>${won(d.price)}</b><span class="strike">다나와 ${won(d.danawa.price)}</span></div>
+      <div class="hprice"><b>${won(d.eff ?? d.price)}</b><span class="strike">다나와 ${won(d.danawa.price)}</span></div>
       <span class="save">${won(saved(d))} 절약</span>${d.hist?.lowest ? ' <span class="save">📉 뽐뿌 역대 최저</span>' : ''}
       <div class="hcmp">비교: ${esc(d.danawa.name)}</div>
     </a>`;
@@ -460,14 +492,19 @@ function card(d) {
   const badge = t
     ? `<div class="badge"><span class="p">${off(d) > 0 ? '-' + off(d) + '%' : off(d) === 0 ? '0%' : '+' + (-off(d)) + '%'}</span><span class="l">${t.label}</span></div>`
     : '';
+  // 가격: 배송비가 확정 유료면 실구매가로 크게 표시하고 내역을 작게
+  const eff = d.eff ?? d.price;
   let prices = d.price != null
-    ? `<span class="now">${won(d.price)}</span>`
+    ? `<span class="now">${won(eff)}</span>${d.ship?.cost > 0 ? `<span class="shipnote">상품 ${won(d.price)} + 배송 ${won(d.ship.cost)}</span>` : ''}${d.ship?.cond ? `<span class="shipnote">배송: ${esc(d.ship.cond)}</span>` : ''}`
     : `<span class="now na">${/다양|상이|별도|각/.test(d.title) ? '가격 다양 (원문 확인)' : '가격 미상'}</span>`;
+  const up = unitOf(d);
+  if (up) prices += `<span class="unitchip ${d.hist?.unitLowest ? 'best' : ''}">📏 ${up.label}당 ${won(up.value)}${d.hist?.unitLowest ? ' · 단가 최저' : ''}</span>`;
   let extra = '';
+  if (d.conds?.length) extra += `<div class="conds">🔒 ${d.conds.map(c => `<span>${esc(c)}</span>`).join('')}</div>`;
   if (d.danawa) {
     prices += `<span class="strike">다나와 ${won(d.danawa.price)}</span>`;
     if (saved(d) > 0) prices += `<span class="save">${won(saved(d))} 절약</span>`;
-    const pct = Math.max(3, Math.min(100, d.price / d.danawa.price * 100));
+    const pct = Math.max(3, Math.min(100, eff / d.danawa.price * 100));
     const note = [
       d.danawa.type === 'similar' ? '비슷한 상품 기준' : '',
       d.danawa.ratio && d.danawa.ratio !== 1 ? `수량 ×${d.danawa.ratio} 환산` : '',
@@ -478,8 +515,9 @@ function card(d) {
   }
   if (d.hist) {
     if (d.hist.lowest) prices += `<span class="save t1">📉 뽐뿌 역대 최저</span>`;
-    extra += `<div class="sub">뽐뿌 이전 최저 ${won(d.hist.prevMin)} · ${d.hist.count}회 등장</div>`;
+    extra += `<div class="sub">뽐뿌 이전 최저 ${won(d.hist.prevMin)} · ${d.hist.count}회 등장${d.hist.unitPrev ? ` · 이전 최저 단가 ${won(d.hist.unitPrev)}` : ''}</div>`;
   }
+  if (d.series?.length >= 2) extra += spark(d.series, eff);
   extra += tipsLine(d) + aiLine(d);
   const fav = !!favs[d.id];
   return `<div class="deal ${t ? 'has ' + t.cls : ''} ${isNew(d) ? 'new' : ''} ${d.ai?.verdict === '강력추천' ? 'top' : ''} ${isEnded(d) ? 'ended' : ''}" data-id="${esc(d.id)}">
@@ -509,7 +547,8 @@ function render() {
     : all;
   const list = source.filter(d =>
     (!q || d.title.toLowerCase().includes(q)) && (!category || d.category === category) && (!mall || d.mall === mall) &&
-    (!max || (d.price != null && d.price <= max)) && (!only || offC(d) >= 5)
+    (!max || (d.price != null && (d.eff ?? d.price) <= max)) && (!only || offC(d) >= 5) &&
+    (!$('noCond').checked || !d.conds?.length)
   ).sort(SORT[sort]).slice(0, 300);
   $('listTitle').textContent = `${view === 'fav' ? '찜한 딜' : only ? '다나와보다 싼 딜' : '전체 딜'} ${list.length}`;
   if (!list.length) { $('list').innerHTML = `<div class="empty">${view === 'fav' ? '☆ 를 눌러 딜을 찜해 보세요' : '조건에 맞는 딜이 없습니다'}</div>`; return; }
@@ -542,7 +581,7 @@ async function load() {
 let t; const deb = () => { clearTimeout(t); t = setTimeout(render, 200); };
 $('q').addEventListener('input', deb);
 $('maxPrice').addEventListener('input', deb);
-['mall', 'sort', 'onlyCheap'].forEach(id => $(id).addEventListener('change', render));
+['mall', 'sort', 'onlyCheap', 'noCond'].forEach(id => $(id).addEventListener('change', render));
 $('cats').addEventListener('click', e => { const c = e.target.closest('.chip'); if (!c) return; category = c.dataset.c; renderChips(); render(); });
 // 찜·공유 버튼 (카드 목록에 이벤트 위임)
 $('list').addEventListener('click', async e => {

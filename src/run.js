@@ -2,8 +2,9 @@
 // 텔레그램 명령 처리 → 수집 → 역대가 → 알림 → 표시용 다나와 비교 → 저장 → 고장 감시
 import { load, save, merge } from './store.js';
 import { FEEDS, fetchFeed } from './rss.js';
-import { notifyPending, enrichDanawa, aiCategorize, aiTips, prepareQueries, setDanawaCache, pruneDanawaCache } from './notify.js';
-import { loadConfig } from './config.js';
+import { notifyPending, enrichDanawa, aiCategorize, aiTips, tagConds, prepareQueries, setDanawaCache, pruneDanawaCache } from './notify.js';
+import { loadConfig, readSettings, writeSettings } from './config.js';
+import { cycleReminders } from './personal.js';
 import { handleCommands } from './commands.js';
 import { loadHistory, applyHistory, saveHistory } from './history.js';
 import { send } from './telegram.js';
@@ -39,6 +40,7 @@ for (const f of FEEDS) {
 
 await aiCategorize(state.deals);
 await aiTips(state.deals);
+tagConds(state.deals);
 // 웹 화면에 현재 알림 조건을 보여주기 위해 함께 저장 (비밀값 없음)
 state.settings = { alerts: cfg.alerts, quietHours: cfg.quietHours ?? null };
 
@@ -50,6 +52,15 @@ await prepareQueries(state.deals);
 await enrichDanawa(state.deals);
 await aiVerdicts(state.deals);
 await notifyPending(state.deals, cfg, subs);
+
+// 재구매 주기 알림 (하루 1번). 관리자 주기는 settings.json, 구독자 주기는 암호화 목록에 저장
+if (cfg.telegram?.botToken && cfg.telegram?.chatId) {
+  const sets = readSettings();
+  const owner = { id: String(cfg.telegram.chatId), p: { cycles: sets.cycles ?? [] } };
+  const people = [owner, ...subs.filter(s => String(s.id) !== owner.id).map(s => ({ id: String(s.id), p: s }))];
+  const n = await cycleReminders(state, people, (id, html) => send({ ...cfg.telegram, chatId: id }, html));
+  if (n) { sets.cycles = owner.p.cycles; writeSettings(sets); console.log(`[cycle] 재구매 알림 ${n}건`); }
+}
 if (JSON.stringify(subs) !== subsBefore) saveSubs(tg0.botToken, subs);
 state.subscriberCount = subs.length; // 웹 표시용 (숫자만, ID는 비공개)
 recordBest(state);

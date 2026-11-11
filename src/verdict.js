@@ -9,10 +9,16 @@ const HOUR = 3600e3;
 const hasEvidence = d => d.price > 0 && (d.danawa || d.hist || d.recommend >= 1 || (d.momentum?.vpm ?? 0) >= 10);
 
 // 입력이 바뀌면(다나와 결과·역대가·추천 변화) 다시 판정
-const fingerprint = d => [d.price, d.danawa?.diffPct, d.danawa?.type, d.hist?.prevMin, Math.min(d.recommend, 5), d.momentum && d.momentum.vpm >= 10, !!d.tips].join('|');
+const fingerprint = d => [d.price, d.eff, (d.conds ?? []).join(','), d.danawa?.diffPct, d.danawa?.type, d.hist?.prevMin, Math.min(d.recommend, 5), d.momentum && d.momentum.vpm >= 10, !!d.tips].join('|');
 
 function facts(d) {
-  const f = [`가격 ${d.price.toLocaleString('ko-KR')}원`, `쇼핑몰 ${d.mall ?? '?'}`, `배송 ${d.shipping ?? '?'}`, `카테고리 ${d.category}`];
+  const eff = d.eff ?? d.price;
+  const f = [
+    `가격 ${d.price.toLocaleString('ko-KR')}원${eff !== d.price ? ` (배송비 포함 실구매가 ${eff.toLocaleString('ko-KR')}원)` : ''}`,
+    `쇼핑몰 ${d.mall ?? '?'}`, `배송 ${d.shipping ?? '?'}`, `카테고리 ${d.category}`,
+  ];
+  if (d.conds?.length) f.push(`할인 조건: ${d.conds.join(', ')} (누구나 이 가격은 아님)`);
+  if (d.hist?.unitPrev) f.push(`단위가격 이전 최저 ${d.hist.unitPrev}원${d.hist.unitLowest ? ' → 이번이 단가 역대 최저' : ''}`);
   if (d.danawa) f.push(`${d.danawa.type === 'similar' ? '[참고용·브랜드 다른 비슷한 상품] ' : ''}다나와 최저가(같은 구성 환산) ${d.danawa.price.toLocaleString('ko-KR')}원 → ${d.danawa.diffPct <= 0 ? -d.danawa.diffPct + '% 쌈' : d.danawa.diffPct + '% 비쌈'} (비교상품: ${d.danawa.name})`);
   else f.push('다나와 비교 없음');
   if (d.hist) f.push(`뽐뿌 이전 최저 ${d.hist.prevMin.toLocaleString('ko-KR')}원 (${d.hist.count}회 등장)${d.hist.lowest ? ' → 이번이 역대 최저' : ''}`);

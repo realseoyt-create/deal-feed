@@ -24,11 +24,24 @@ section('가격 ≠ 제목 금액', deals.flatMap(d => {
 section('다나와 계산 불일치', deals.filter(d => d.danawa).flatMap(d => {
   const { price, unitPrice, ratio, diffPct } = d.danawa;
   const ref = unitPrice ? Math.round(unitPrice * (ratio ?? 1)) : price;
-  const diff = Math.round((d.price - price) / price * 100);
+  const diff = Math.round(((d.eff ?? d.price) - price) / price * 100); // 실구매가 기준
   const bad = [];
   if (ref !== price) bad.push(`환산가 ${price} ≠ 단가${unitPrice}×${ratio}`);
   if (diff !== diffPct) bad.push(`할인율 ${diffPct} ≠ 계산 ${diff}`);
   return bad.length ? [`${bad.join(', ')} | ${short(d.title)}`] : [];
+}));
+
+// 2-1) 실구매가 = 가격 + 확정 배송비
+section('실구매가 계산 불일치', deals.flatMap(d => {
+  if (d.price == null || d.eff == null) return [];
+  const want = d.price + (d.ship?.cost ?? 0);
+  return d.eff !== want ? [`eff ${d.eff} ≠ ${d.price}+${d.ship?.cost ?? 0} | ${short(d.title)}`] : [];
+}));
+
+// 2-2) 단위가격: 해석한 용량이 제목에 실제로 있는 숫자로 만들어졌는지 (확인용 목록)
+section('단위가격 해석 — 확인용', deals.filter(d => d.qty).map(d => {
+  const per = d.qty.amount / d.qty.per;
+  return `${d.qty.amount}${d.qty.unit} → ${d.qty.perLabel}당 ${Math.round((d.eff ?? d.price) / per).toLocaleString('ko-KR')}원 | ${short(d.title, 56)}`;
 }));
 
 // 3) 다나와 비교: 사람이 확인할 목록 (큰 할인일수록 오매칭 위험)
@@ -64,4 +77,4 @@ section('상태 이상', deals.flatMap(d => {
   return why.length ? [`${why.join(', ')} | ${short(d.title)}`] : [];
 }));
 
-console.log(`\n의심 항목 합계 ${issues}건 (3번은 확인용 목록이라 오류가 아닐 수 있음)`);
+console.log(`\n의심 항목 합계 ${issues}건 ("확인용" 목록은 오류가 아닐 수 있음 — 사람이 훑어보는 용도)`);
