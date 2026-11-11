@@ -24,6 +24,36 @@ export function candidate(d, a, hotV) {
   return null;
 }
 
+// 다나와 비교 1건 (결과는 d.danawa 에 저장, 한 번 확인한 딜은 다시 조회 안 함)
+async function checkDanawa(d) {
+  if (d.danawa_checked || !d.price) return d.danawa?.diffPct ?? null;
+  d.danawa_checked = true;
+  try {
+    const q = cleanQuery(d.product || d.title);
+    const r = await danawaLookup(d.product || d.title);
+    // 가격이 0.15~3배 범위를 벗어나면 다른 상품으로 간주 (여행상품·세트 오매칭 방지)
+    const m = r.items.find(i => sameProduct(q, i.name) && d.price / i.price >= 0.15 && d.price / i.price <= 3);
+    await sleep(1500);
+    if (!m) return null;
+    const diffPct = Math.round((d.price - m.price) / m.price * 100);
+    d.danawa = { price: m.price, name: m.name, url: m.url, diffPct };
+    return diffPct;
+  } catch (e) { console.error('[danawa]', e.message); return null; }
+}
+
+// 화면 표시용: 반응이 중간 이상인 최근 딜을 실행당 최대 N건 비교 (대량 조회 방지)
+export async function enrichDanawa(deals, limit = 12) {
+  const recent = deals.filter(d => Date.now() - new Date(d.posted_at) < 6 * HOUR);
+  const vs = recent.map(d => d.views_per_min).sort((a, b) => a - b);
+  const median = vs.length ? vs[Math.floor(vs.length / 2)] : 0;
+  const targets = recent
+    .filter(d => !d.danawa_checked && d.price > 0 && d.views_per_min >= median)
+    .sort((a, b) => b.views_per_min - a.views_per_min)
+    .slice(0, limit);
+  for (const d of targets) await checkDanawa(d);
+  console.log(`[danawa] 표시용 비교 ${targets.length}건`);
+}
+
 const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const won = n => n.toLocaleString('ko-KR') + '원';
 
@@ -45,19 +75,7 @@ export async function notifyPending(deals, { telegram, alerts = {} }) {
     if (!c) continue; // 미달 → 반응이 오르면 다음 실행에 재검사
 
     // 다나와 확인 (후보만, 1.5초 간격) — 같은 상품으로 보이는 결과만 비교
-    let diff = null;
-    if (d.price) {
-      try {
-        const q = cleanQuery(d.product || d.title);
-        const r = await danawaLookup(d.product || d.title);
-        const m = r.items.find(i => sameProduct(q, i.name));
-        if (m) {
-          diff = Math.round((d.price - m.price) / m.price * 100);
-          d.danawa = { price: m.price, name: m.name, url: m.url, diffPct: diff };
-        }
-        await sleep(1500);
-      } catch (e) { console.error('[danawa]', e.message); }
-    }
+    const diff = await checkDanawa(d);
     const pass = diff == null ? !c.needCompare : diff <= c.maxDiff;
     if (!pass) { d.notified = 3; dropped++; continue; }
     d.alert = c.reason;

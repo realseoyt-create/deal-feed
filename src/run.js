@@ -1,7 +1,7 @@
 // 1회 실행: 수집 → 알림 → docs/deals.json 저장 (GitHub Actions cron이 호출)
 import { load, save, merge } from './store.js';
 import { FEEDS, fetchFeed } from './rss.js';
-import { notifyPending } from './notify.js';
+import { notifyPending, enrichDanawa } from './notify.js';
 import { loadConfig } from './config.js';
 
 const state = load();
@@ -16,5 +16,6 @@ for (const f of FEEDS) {
   }
 }
 await notifyPending(state.deals, loadConfig());
+await enrichDanawa(state.deals);
 save(state);
 if (!ok) process.exitCode = 1; // 전부 실패하면 Actions에 빨간불
