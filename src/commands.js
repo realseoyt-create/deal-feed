@@ -1,8 +1,8 @@
-// 텔레그램 명령으로 settings.json 수정 (본인 채팅 ID에서 온 메시지만 처리)
+// 텔레그램 명령·버튼으로 설정 변경 (본인 채팅 ID에서 온 것만 처리)
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getUpdates, send, esc } from './telegram.js';
+import { getUpdates, send, answerCallback, esc } from './telegram.js';
 
 const SETTINGS = join(dirname(fileURLToPath(import.meta.url)), '..', 'settings.json');
 const readS = () => JSON.parse(readFileSync(SETTINGS, 'utf8').replace(/^﻿/, ''));
@@ -15,24 +15,36 @@ const HELP = `<b>꿀딜 봇 명령어</b>
 /include 단어 — 제외어 삭제
 /min 숫자 — 다나와 대비 최소 할인율(%)
 /maxprice 숫자 — 관심 카테고리 최대 가격(원)
+/quiet 23 7 — 방해 금지 시간(23시~7시, 아침에 모아서 발송)
+/quiet off — 방해 금지 끄기
 /list — 현재 설정 보기
 /status — 수집 상태
 (반영은 다음 수집 때, 최대 10~20분)`;
 
+// 반환: { text, changed }
 function apply(cmd, arg, s) {
   const a = s.alerts;
   const uniq = arr => [...new Set(arr)];
+  const ok = text => ({ text, changed: true });
+  const no = text => ({ text, changed: false });
   switch (cmd) {
-    case '/watch': if (!arg) return '단어를 같이 보내주세요. 예: /watch 생수';
-      a.keywords = uniq([...(a.keywords ?? []), arg]); return `✅ 키워드 추가: <b>${esc(arg)}</b>`;
-    case '/unwatch': a.keywords = (a.keywords ?? []).filter(k => k !== arg); return `🗑 키워드 삭제: ${esc(arg)}`;
-    case '/exclude': if (!arg) return '단어를 같이 보내주세요.';
-      a.excludeKeywords = uniq([...(a.excludeKeywords ?? []), arg]); return `🚫 제외어 추가: ${esc(arg)}`;
-    case '/include': a.excludeKeywords = (a.excludeKeywords ?? []).filter(k => k !== arg); return `제외어 삭제: ${esc(arg)}`;
-    case '/min': { const n = Number(arg); if (!(n >= 0 && n <= 90)) return '0~90 사이 숫자로 보내주세요. 예: /min 15';
-      a.minDiscountPct = n; return `✅ 최소 할인율 ${n}%`; }
-    case '/maxprice': { const n = Number(String(arg).replace(/[,원]/g, '')); if (!(n > 0)) return '금액을 숫자로 보내주세요. 예: /maxprice 30000';
-      a.maxPrice = n; return `✅ 관심 카테고리 최대 가격 ${n.toLocaleString('ko-KR')}원`; }
+    case '/watch': if (!arg) return no('단어를 같이 보내주세요. 예: /watch 생수');
+      a.keywords = uniq([...(a.keywords ?? []), arg]); return ok(`✅ 키워드 추가: <b>${esc(arg)}</b>`);
+    case '/unwatch': a.keywords = (a.keywords ?? []).filter(k => k !== arg); return ok(`🗑 키워드 삭제: ${esc(arg)}`);
+    case '/exclude': if (!arg) return no('단어를 같이 보내주세요.');
+      a.excludeKeywords = uniq([...(a.excludeKeywords ?? []), arg]); return ok(`🚫 제외어 추가: ${esc(arg)}`);
+    case '/include': a.excludeKeywords = (a.excludeKeywords ?? []).filter(k => k !== arg); return ok(`제외어 삭제: ${esc(arg)}`);
+    case '/min': { const n = Number(arg); if (!(arg !== '' && n >= 0 && n <= 90)) return no('0~90 사이 숫자로 보내주세요. 예: /min 15');
+      a.minDiscountPct = n; return ok(`✅ 최소 할인율 ${n}%`); }
+    case '/maxprice': { const n = Number(String(arg).replace(/[,원]/g, '')); if (!(n > 0)) return no('금액을 숫자로 보내주세요. 예: /maxprice 30000');
+      a.maxPrice = n; return ok(`✅ 관심 카테고리 최대 가격 ${n.toLocaleString('ko-KR')}원`); }
+    case '/quiet': {
+      if (/^(off|끄기|해제)$/i.test(arg)) { delete s.quietHours; return ok('🔔 방해 금지 해제 — 24시간 바로 알림'); }
+      const [st, en] = arg.split(/[\s~\-]+/).map(Number);
+      const valid = n => Number.isInteger(n) && n >= 0 && n <= 23;
+      if (!valid(st) || !valid(en) || st === en) return no('시작·끝 시각을 0~23으로 보내주세요. 예: /quiet 23 7');
+      s.quietHours = { start: st, end: en }; return ok(`🌙 방해 금지 ${st}시~${en}시 (그 사이 딜은 ${en}시 이후 모아서 발송)`);
+    }
     default: return null;
   }
 }
@@ -43,26 +55,42 @@ export async function handleCommands(state, tg) {
   if (!updates.length) return;
   state.tgOffset = updates.at(-1).update_id + 1;
 
-  let s = readS(), changed = false;
+  const s = readS();
+  let changed = false;
+  const reply = async (text) => { try { await send(tg, text); } catch (e) { console.error('[cmd]', e.message); } };
+
   for (const u of updates) {
-    const m = u.message;
-    if (!m?.text || String(m.chat.id) !== String(tg.chatId)) continue; // 다른 사람 메시지 무시
-    const [rawCmd, ...rest] = m.text.trim().split(/\s+/);
+    // 알림의 "비교가 틀렸어요" 버튼
+    const cb = u.callback_query;
+    if (cb) {
+      if (String(cb.from.id) !== String(tg.chatId)) continue;
+      const m = /^wrong:(.+)$/.exec(cb.data ?? '');
+      const d = m && state.deals.find(x => x.id === m[1]);
+      await answerCallback(tg, cb.id, '반영했어요');
+      if (d?.danawa) {
+        state.feedback = [...(state.feedback ?? []), { deal: d.product, matched: d.danawa.name, at: new Date().toISOString() }].slice(-50);
+        delete d.danawa; d.danawa_wrong = true; d.danawa_checked = true;
+        await reply(`🗑 다나와 비교를 지웠어요\n${esc(d.product || d.title)}`);
+      } else await reply('이미 지워졌거나 3일이 지난 딜이에요.');
+      continue;
+    }
+
+    const msg = u.message;
+    if (!msg?.text || String(msg.chat.id) !== String(tg.chatId)) continue; // 다른 사람 메시지 무시
+    const [rawCmd, ...rest] = msg.text.trim().split(/\s+/);
     const cmd = rawCmd.split('@')[0].toLowerCase(), arg = rest.join(' ').trim();
-    let reply;
-    if (cmd === '/start' || cmd === '/help') reply = HELP;
+    if (cmd === '/start' || cmd === '/help') await reply(HELP);
     else if (cmd === '/list') {
-      const a = s.alerts;
-      reply = `<b>현재 설정</b>\n키워드: ${esc((a.keywords ?? []).join(', ') || '없음')}\n제외어: ${esc((a.excludeKeywords ?? []).join(', ') || '없음')}\n관심 카테고리: ${esc((a.categories ?? []).join(', '))} (≤ ${(a.maxPrice ?? 0).toLocaleString('ko-KR')}원)\n최소 할인율: ${a.minDiscountPct}%\n조회 상위: ${a.hotTopPercent}% · 추천 ≥ ${a.hotRecommend}`;
+      const a = s.alerts, q = s.quietHours;
+      await reply(`<b>현재 설정</b>\n키워드: ${esc((a.keywords ?? []).join(', ') || '없음')}\n제외어: ${esc((a.excludeKeywords ?? []).join(', ') || '없음')}\n관심 카테고리: ${esc((a.categories ?? []).join(', '))} (≤ ${(a.maxPrice ?? 0).toLocaleString('ko-KR')}원)\n최소 할인율: ${a.minDiscountPct}%\n조회 상위: ${a.hotTopPercent}% · 추천 ≥ ${a.hotRecommend}\n방해 금지: ${q ? `${q.start}시~${q.end}시` : '꺼짐'}`);
     } else if (cmd === '/status') {
       const h = state.health ?? {};
-      reply = `마지막 정상 수집: ${h.lastOk ? new Date(h.lastOk).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '-'}\n연속 실패: ${h.fails ?? 0}회\n보관 딜: ${state.deals.length}건`;
+      await reply(`마지막 정상 수집: ${h.lastOk ? new Date(h.lastOk).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '-'}\n연속 실패: ${h.fails ?? 0}회\n보관 딜: ${state.deals.length}건`);
     } else {
-      reply = apply(cmd, arg, s);
-      if (reply?.startsWith('✅') || reply?.startsWith('🗑') || reply?.startsWith('🚫') || reply?.startsWith('제외어')) changed = true;
-      reply ??= '모르는 명령이에요. /help';
+      const r = apply(cmd, arg, s);
+      if (r?.changed) changed = true;
+      await reply(r?.text ?? '모르는 명령이에요. /help');
     }
-    try { await send(tg, reply); } catch (e) { console.error('[cmd]', e.message); }
   }
   if (changed) { writeS(s); console.log('[cmd] settings.json 변경'); }
 }

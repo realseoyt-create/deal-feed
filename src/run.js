@@ -2,7 +2,7 @@
 // 텔레그램 명령 처리 → 수집 → 역대가 → 알림 → 표시용 다나와 비교 → 저장 → 고장 감시
 import { load, save, merge } from './store.js';
 import { FEEDS, fetchFeed } from './rss.js';
-import { notifyPending, enrichDanawa } from './notify.js';
+import { notifyPending, enrichDanawa, aiCategorize } from './notify.js';
 import { loadConfig } from './config.js';
 import { handleCommands } from './commands.js';
 import { loadHistory, applyHistory, saveHistory } from './history.js';
@@ -29,6 +29,10 @@ for (const f of FEEDS) {
     console.error(`[collect] ${f.source} 실패:`, e.message);
   }
 }
+
+await aiCategorize(state.deals);
+// 웹 화면에 현재 알림 조건을 보여주기 위해 함께 저장 (비밀값 없음)
+state.settings = { alerts: cfg.alerts, quietHours: cfg.quietHours ?? null };
 
 const hist = loadHistory();
 applyHistory(state.deals, hist);

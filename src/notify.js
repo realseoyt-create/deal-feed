@@ -1,11 +1,12 @@
 import { danawaLookup, sameProduct, cleanQuery } from './danawa.js';
-import { judgeMatch, hasGemini } from './gemini.js';
+import { judgeMatch, categorizeBatch, hasGemini } from './gemini.js';
 import { send, esc } from './telegram.js';
 
-// notified: 0 미판정 · 1 발송 · 2 대상이었으나 텔레그램 미설정 · 3 다나와 확인 결과 탈락
+// notified: 0 미판정 · 1 발송 · 2 대상이었으나 텔레그램 미설정 · 3 다나와 확인 결과 탈락 · 4 방해 금지 시간이라 대기 중
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const HOUR = 3600e3;
 const won = n => n.toLocaleString('ko-KR') + '원';
+const WEB = 'https://realseoyt-create.github.io/deal-feed/';
 
 // 최근 24시간 글의 분당 조회수 상위 N% 기준값 (표본이 적으면 설정값)
 export function hotThreshold(deals, a) {
@@ -28,8 +29,28 @@ export function candidate(d, a, hotV) {
   return null;
 }
 
+// 한국 시간 기준 방해 금지 시간인지
+export function isQuiet(q, now = new Date()) {
+  if (!q || q.start == null || q.end == null) return false;
+  const h = (now.getUTCHours() + 9) % 24;
+  return q.start <= q.end ? (h >= q.start && h < q.end) : (h >= q.start || h < q.end);
+}
+
+// AI로 카테고리 분류 (아직 AI가 안 본 딜만, 1회 호출로 최대 40건)
+export async function aiCategorize(deals) {
+  const targets = deals.filter(d => d.cat_by !== 'ai').slice(0, 40);
+  if (!hasGemini() || !targets.length) return;
+  try {
+    const cats = await categorizeBatch(targets.map(d => d.title));
+    if (!cats) return;
+    targets.forEach((d, i) => { if (cats[i]) { d.category = cats[i]; d.cat_by = 'ai'; } });
+    console.log(`[category] AI 분류 ${targets.length}건`);
+  } catch (e) { console.error('[category]', e.message); }
+}
+
 // 다나와 비교 1건 → d.danawa 저장. 한 번 확인한 딜은 다시 조회 안 함
 async function checkDanawa(d) {
+  if (d.danawa_wrong) return null;                       // 사용자가 "비교 틀림" 표시
   if (d.danawa_checked || !d.price) return d.danawa?.diffPct ?? null;
   d.danawa_checked = true;
   try {
@@ -61,25 +82,72 @@ async function checkDanawa(d) {
 }
 
 // 화면 표시용: 반응이 중간 이상인 최근 딜을 실행당 최대 N건 비교 (대량 조회 방지)
-export async function enrichDanawa(deals, limit = 12) {
-  // 규칙 매칭 결과는 규칙이 강화되면 재검증 (AI 판정 결과는 유지)
+export async function enrichDanawa(deals, limit = 10, budgetMs = 150e3) {
+  const t0 = Date.now();
   for (const d of deals) {
-    if (d.danawa && d.danawa.by !== 'ai' && (!sameProduct(cleanQuery(d.product || d.title), d.danawa.name) || !d.price)) delete d.danawa;
+    if (!d.danawa || d.danawa.by === 'ai') continue;
+    if (hasGemini()) d.recheck = true;                                                             // 규칙 매칭 결과는 AI로 다시 판정 (실제 검사 직전에 교체)
+    else if (!sameProduct(cleanQuery(d.product || d.title), d.danawa.name) || !d.price) delete d.danawa;
   }
   const recent = deals.filter(d => Date.now() - new Date(d.posted_at) < 6 * HOUR);
   const vs = recent.map(d => d.views_per_min).sort((a, b) => a - b);
   const median = vs.length ? vs[Math.floor(vs.length / 2)] : 0;
-  const targets = recent
-    .filter(d => !d.danawa_checked && d.price > 0 && d.views_per_min >= median)
-    .sort((a, b) => b.views_per_min - a.views_per_min)
-    .slice(0, limit);
-  for (const d of targets) await checkDanawa(d);
-  console.log(`[danawa] 표시용 비교 ${targets.length}건 (${hasGemini() ? 'AI 매칭' : '규칙 매칭'})`);
+  const targets = [
+    ...deals.filter(d => d.recheck),
+    ...recent.filter(d => !d.recheck && !d.danawa_checked && !d.danawa_wrong && d.price > 0 && d.views_per_min >= median)
+      .sort((a, b) => b.views_per_min - a.views_per_min),
+  ].slice(0, limit);
+  // Actions 실행 시간 제한을 넘지 않도록 시간 예산 안에서만 처리, 남은 건 다음 실행으로
+  let done = 0;
+  for (const d of targets) {
+    if (Date.now() - t0 > budgetMs) break;
+    if (d.recheck) {
+      if (!hasGemini()) break;                         // AI가 쉬는 중이면 재검증은 다음 실행으로
+      const prev = d.danawa;
+      delete d.danawa; d.danawa_checked = false;
+      await checkDanawa(d);
+      if (!d.danawa && !d.danawa_checked) d.danawa = prev; // 호출 자체가 안 됐으면 원복
+    } else await checkDanawa(d);
+    delete d.recheck; done++;
+  }
+  // 재검증 대상인데 이번에 못 한 딜은 표시를 유지해 다음 실행에 처리
+  console.log(`[danawa] 표시용 비교 ${done}/${targets.length}건 ${Math.round((Date.now() - t0) / 1000)}초 (${hasGemini() ? 'AI 매칭' : '규칙 매칭'})`);
 }
 
-export async function notifyPending(deals, { telegram, alerts = {} }) {
+function dealLines(d) {
+  const price = d.price == null ? '' : d.price === 0 ? ' · 무료' : ` · <b>${won(d.price)}</b>`;
+  const dn = d.danawa
+    ? `\n다나와 ${won(d.danawa.price)} 대비 <b>${d.danawa.diffPct <= 0 ? `${-d.danawa.diffPct}% 쌈` : `${d.danawa.diffPct}% 비쌈`}</b>${d.danawa.ratio !== 1 ? ` (수량 ×${d.danawa.ratio} 환산)` : ''}\n<i>비교: ${esc(d.danawa.name.slice(0, 40))}</i>`
+    : '';
+  const hist = d.hist ? `\n뽐뿌 이전 최저 ${won(d.hist.prevMin)} (${d.hist.count}회)` : '';
+  return `[${esc(d.mall ?? '')}] ${esc(d.product || d.title)}${price}${d.shipping ? ` (${esc(d.shipping)})` : ''}${dn}${hist}`;
+}
+
+function dealButtons(d) {
+  const row = [{ text: '뽐뿌 글 보기', url: d.url }];
+  if (d.danawa) row.push({ text: '다나와 보기', url: d.danawa.url });
+  return d.danawa ? [row, [{ text: '❌ 비교가 틀렸어요', callback_data: `wrong:${d.id}` }]] : [row];
+}
+
+export async function notifyPending(deals, { telegram, alerts = {}, quietHours }) {
   const hotV = hotThreshold(deals, alerts);
-  let sent = 0, dropped = 0;
+  const quiet = isQuiet(quietHours);
+  const canSend = telegram?.botToken && telegram?.chatId;
+  let sent = 0, dropped = 0, queued = 0;
+
+  // 방해 금지가 끝났으면 밤사이 대기 딜을 한 번에 발송
+  const waiting = deals.filter(d => d.notified === 4);
+  if (waiting.length && !quiet && canSend) {
+    const top = waiting.slice(0, 10);
+    const body = top.map(d => `• ${esc(d.alert ?? '')}\n<a href="${esc(d.url)}">${esc((d.product || d.title).slice(0, 45))}</a>${d.price ? ` · <b>${won(d.price)}</b>` : ''}${d.danawa ? ` · 다나와 대비 ${d.danawa.diffPct <= 0 ? -d.danawa.diffPct + '% 쌈' : d.danawa.diffPct + '% 비쌈'}` : ''}`).join('\n\n');
+    const more = waiting.length > top.length ? `\n\n외 ${waiting.length - top.length}건` : '';
+    try {
+      await send(telegram, `🌙 <b>방해 금지 시간에 모인 딜 ${waiting.length}건</b>\n\n${body}${more}`, [[{ text: '웹에서 전체 보기', url: WEB }]]);
+      waiting.forEach(d => { d.notified = 1; });
+      sent += waiting.length;
+    } catch (e) { console.error('[notify]', e.message); }
+  }
+
   for (const d of deals) {
     if (d.notified !== 0 || Date.now() - new Date(d.first_seen) > 3 * HOUR) continue;
     const c = candidate(d, alerts, hotV);
@@ -90,15 +158,11 @@ export async function notifyPending(deals, { telegram, alerts = {} }) {
     if (!pass) { d.notified = 3; dropped++; continue; }
     d.alert = c.reason;
 
-    if (!telegram?.botToken || !telegram?.chatId) { d.notified = 2; continue; }
-    const price = d.price == null ? '' : d.price === 0 ? ' · 무료' : ` · <b>${won(d.price)}</b>`;
-    const dnLine = diff == null ? '다나와 비교 불가'
-      : `다나와 ${won(d.danawa.price)} 대비 <b>${diff <= 0 ? `${-diff}% 쌈` : `${diff}% 비쌈`}</b>${d.danawa.ratio !== 1 ? ` (수량 ×${d.danawa.ratio} 환산)` : ''}`;
-    const histLine = d.hist ? `\n뽐뿌 이전 최저 ${won(d.hist.prevMin)} (${d.hist.count}회)` : '';
-    const msg = `${esc(c.reason)}\n[${esc(d.mall ?? '')}] ${esc(d.product || d.title)}${price}${d.shipping ? ` (${esc(d.shipping)})` : ''}\n${dnLine}${histLine}\n${esc(d.url)}`;
-    try { await send(telegram, msg); d.notified = 1; sent++; }
+    if (!canSend) { d.notified = 2; continue; }
+    if (quiet) { d.notified = 4; queued++; continue; }
+    try { await send(telegram, `${esc(c.reason)}\n${dealLines(d)}`, dealButtons(d)); d.notified = 1; sent++; }
     catch (e) { console.error('[notify]', e.message); break; }
   }
-  console.log(`[notify] 발송 ${sent}건, 다나와 탈락 ${dropped}건 (조회 기준 ${hotV}/분)`);
+  console.log(`[notify] 발송 ${sent}건, 다나와 탈락 ${dropped}건, 방해금지 대기 ${queued}건 (조회 기준 ${hotV}/분)`);
   return sent;
 }

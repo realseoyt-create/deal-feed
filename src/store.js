@@ -29,6 +29,8 @@ export function merge(state, items) {
   let added = 0;
   for (const it of items) {
     const old = byId.get(it.id);
+    // AI가 분류한 카테고리는 규칙 분류로 덮어쓰지 않음
+    if (old?.cat_by === 'ai') it.category = old.category;
     if (old) Object.assign(old, it, {
       first_seen: old.first_seen, notified: old.notified, alert: old.alert,
       danawa: old.danawa, danawa_checked: old.danawa_checked, hist: old.hist, last_seen: now,
