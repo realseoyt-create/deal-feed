@@ -19,7 +19,8 @@ export function save(state) {
     .sort((a, b) => b.posted_at.localeCompare(a.posted_at));
   state.updatedAt = new Date().toISOString();
   mkdirSync(DOCS, { recursive: true });
-  writeFileSync(FILE, JSON.stringify(state, null, 0));
+  // _로 시작하는 필드(본문 원문 등 실행 중 임시값)는 공개 파일에 쓰지 않음
+  writeFileSync(FILE, JSON.stringify(state, (k, v) => (k.startsWith('_') ? undefined : v), 0));
 }
 
 // 새로 읽은 RSS 항목을 병합. 반환: 신규 건수
@@ -33,7 +34,7 @@ export function merge(state, items) {
     if (old?.cat_by === 'ai') it.category = old.category;
     if (old) Object.assign(old, it, {
       first_seen: old.first_seen, notified: old.notified, alert: old.alert,
-      danawa: old.danawa, danawa_checked: old.danawa_checked, hist: old.hist, ai: old.ai, snaps: old.snaps, last_seen: now,
+      danawa: old.danawa, danawa_checked: old.danawa_checked, hist: old.hist, ai: old.ai, snaps: old.snaps, tips: old.tips, last_seen: now,
     });
     else { byId.set(it.id, { ...it, first_seen: now, last_seen: now, notified: 0 }); added++; }
   }

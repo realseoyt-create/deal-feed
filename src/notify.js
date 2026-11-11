@@ -1,5 +1,5 @@
 import { danawaLookup, sameProduct, cleanQuery } from './danawa.js';
-import { judgeMatch, categorizeBatch, hasGemini } from './gemini.js';
+import { judgeMatch, categorizeBatch, extractPoints, hasGemini } from './gemini.js';
 import { send, esc } from './telegram.js';
 
 // notified: 0 미판정 · 1 발송 · 2 대상이었으나 텔레그램 미설정 · 3 다나와 확인 결과 탈락 · 4 방해 금지 시간이라 대기 중
@@ -48,6 +48,25 @@ export async function aiCategorize(deals) {
     targets.forEach((d, i) => { if (cats[i]) { d.category = cats[i]; d.cat_by = 'ai'; } });
     console.log(`[category] AI 분류 ${targets.length}건`);
   } catch (e) { console.error('[category]', e.message); }
+}
+
+// 본문 앞부분에서 구매 포인트 추출 (아직 안 뽑은 딜만, 1회 호출 최대 15건)
+export async function aiTips(deals) {
+  const targets = deals.filter(d => d._body && !d.tips).slice(0, 15);
+  if (!hasGemini() || !targets.length) return;
+  try {
+    const out = await extractPoints(targets);
+    if (!out) return;
+    targets.forEach((d, i) => {
+      const o = out[i] ?? {};
+      const clip = (s, n) => String(s ?? '').trim().slice(0, n);
+      d.tips = {
+        points: (Array.isArray(o.points) ? o.points : []).map(p => clip(p, 24)).filter(Boolean).slice(0, 3),
+        unit: clip(o.unit, 20), caution: clip(o.caution, 20),
+      };
+    });
+    console.log(`[tips] 구매 포인트 ${targets.length}건 (포인트 있음 ${targets.filter(d => d.tips?.points.length).length}건)`);
+  } catch (e) { console.error('[tips]', e.message); }
 }
 
 // 다나와 비교 1건 → d.danawa 저장. 한 번 확인한 딜은 다시 조회 안 함
@@ -123,7 +142,13 @@ function dealLines(d) {
     : '';
   const hist = d.hist ? `\n뽐뿌 이전 최저 ${won(d.hist.prevMin)} (${d.hist.count}회)` : '';
   const ai = d.ai && !String(d.alert ?? '').includes('AI 강력추천') ? `\n🤖 AI ${d.ai.verdict} ${d.ai.score}점: ${esc(d.ai.reason)}` : '';
-  return `[${esc(d.mall ?? '')}] ${esc(d.product || d.title)}${price}${d.shipping ? ` (${esc(d.shipping)})` : ''}${dn}${hist}${ai}`;
+  const t = d.tips;
+  const tips = t && (t.points.length || t.unit || t.caution)
+    ? `\n💡 ${esc([...t.points, t.unit].filter(Boolean).join(' · '))}${t.caution ? `\n⚠️ ${esc(t.caution)}` : ''}`
+    : '';
+  // 본문 앞부분은 비공개 텔레그램에만 (공개 웹·저장소에는 없음)
+  const body = d._body ? `\n<blockquote>${esc(d._body.slice(0, 160))}${d._body.length > 160 ? '…' : ''}</blockquote>` : '';
+  return `[${esc(d.mall ?? '')}] ${esc(d.product || d.title)}${price}${d.shipping ? ` (${esc(d.shipping)})` : ''}${dn}${hist}${tips}${ai}${body}`;
 }
 
 function dealButtons(d) {

@@ -9,7 +9,7 @@ const HOUR = 3600e3;
 const hasEvidence = d => d.price > 0 && (d.danawa || d.hist || d.recommend >= 1 || (d.momentum?.vpm ?? 0) >= 10);
 
 // 입력이 바뀌면(다나와 결과·역대가·추천 변화) 다시 판정
-const fingerprint = d => [d.price, d.danawa?.diffPct, d.hist?.prevMin, Math.min(d.recommend, 5), d.momentum && d.momentum.vpm >= 10].join('|');
+const fingerprint = d => [d.price, d.danawa?.diffPct, d.hist?.prevMin, Math.min(d.recommend, 5), d.momentum && d.momentum.vpm >= 10, !!d.tips].join('|');
 
 function facts(d) {
   const f = [`가격 ${d.price.toLocaleString('ko-KR')}원`, `쇼핑몰 ${d.mall ?? '?'}`, `배송 ${d.shipping ?? '?'}`, `카테고리 ${d.category}`];
@@ -17,6 +17,8 @@ function facts(d) {
   else f.push('다나와 비교 없음');
   if (d.hist) f.push(`뽐뿌 이전 최저 ${d.hist.prevMin.toLocaleString('ko-KR')}원 (${d.hist.count}회 등장)${d.hist.lowest ? ' → 이번이 역대 최저' : ''}`);
   f.push(`게시 ${Math.round((Date.now() - new Date(d.posted_at)) / 60000)}분 경과, 조회 ${d.views}, 추천 ${d.recommend}`);
+  if (d.tips?.points?.length || d.tips?.unit) f.push(`본문 구매 포인트: ${[...(d.tips.points ?? []), d.tips.unit].filter(Boolean).join(', ')}`);
+  if (d.tips?.caution) f.push(`주의 조건: ${d.tips.caution}`);
   if (d.momentum) f.push(`최근 조회 속도 ${d.momentum.vpm}/분, 추천 증가 +${d.momentum.recGain}`);
   return f.join(' / ');
 }

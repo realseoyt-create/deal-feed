@@ -96,6 +96,11 @@ a.prod:hover{text-decoration:underline}
 .deal.top{border:2px solid #7b2ff7}
 .hcard.top{border-color:#7b2ff7}
 .hreason{font-size:13px;margin-top:8px;line-height:1.45}
+.tips{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+.tips span{font-size:12px;font-weight:600;padding:3px 9px;border-radius:7px;background:#fff7d6;color:#7a5a00}
+.tips span.unit{background:var(--t3bg);color:var(--t3)}
+.tips span.warn{background:var(--t1bg);color:var(--t1)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .tips span:not(.unit):not(.warn){background:#3a3112;color:#f5d36b}}
 .divider{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px;font-weight:700;margin:14px 0}
 .divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--line)}
 .empty{text-align:center;color:var(--muted);padding:40px}
@@ -206,6 +211,13 @@ function renderAlertInfo(s) {
     </div>`;
 }
 
+// 본문에서 AI가 뽑은 "싸게 사는 포인트" (원문은 링크에서)
+const tipsLine = d => {
+  const t = d.tips;
+  if (!t || !(t.points?.length || t.unit || t.caution)) return '';
+  return `<div class="tips">${(t.points ?? []).map(p => `<span>💡 ${esc(p)}</span>`).join('')}${t.unit ? `<span class="unit">${esc(t.unit)}</span>` : ''}${t.caution ? `<span class="warn">⚠️ ${esc(t.caution)}</span>` : ''}</div>`;
+};
+
 const aiLine = d => {
   if (!d.ai) return '';
   const cls = { '강력추천': 'top', '추천': 'good', '비추천': 'bad' }[d.ai.verdict] ?? '';
@@ -224,6 +236,7 @@ function renderHero() {
     return `<a class="hcard ${t.cls} ${d.ai?.verdict === '강력추천' ? 'top' : ''}" href="${esc(d.url)}" target="_blank" rel="noopener">
       <div><span class="hpct">-${off(d)}<small>%</small></span><span class="htier">${d.ai?.verdict === '강력추천' ? '🏆 강력추천' : t.label}</span></div>
       ${d.ai ? `<div class="hreason">🤖 ${esc(d.ai.reason)}</div>` : ''}
+      ${tipsLine(d)}
       <div class="hname">${esc(d.mall ? `[${d.mall}] ` : '')}${esc(d.product || d.title)}</div>
       <div class="hprice"><b>${won(d.price)}</b><span class="strike">다나와 ${won(d.danawa.price)}</span></div>
       <span class="save">${won(saved(d))} 절약</span>${d.hist?.lowest ? ' <span class="save">📉 뽐뿌 역대 최저</span>' : ''}
@@ -264,7 +277,7 @@ function card(d) {
     if (d.hist.lowest) prices += `<span class="save t1">📉 뽐뿌 역대 최저</span>`;
     extra += `<div class="sub">뽐뿌 이전 최저 ${won(d.hist.prevMin)} · ${d.hist.count}회 등장</div>`;
   }
-  extra += aiLine(d);
+  extra += tipsLine(d) + aiLine(d);
   return `<div class="deal ${t ? 'has ' + t.cls : ''} ${isNew(d) ? 'new' : ''} ${d.ai?.verdict === '강력추천' ? 'top' : ''}">
     ${badge}
     <div class="body">

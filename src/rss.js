@@ -30,7 +30,9 @@ export async function fetchFeed({ source, url }) {
     return {
       id: `${source}:${no ?? link}`, source, no, title, ...parsed,
       category: categorize(parsed.product, summary),
-      // 공개 저장소: 본문 요약은 저장하지 않음 (판정용 키워드만 사용)
+      // 공개 저장소: 본문 원문은 파일에 저장하지 않음 (_로 시작 → 저장 직전 제거)
+      // 이번 실행 안에서만 AI 포인트 추출·텔레그램(비공개) 발송에 사용
+      _body: summary.replace(/\s+/g, ' ').trim().slice(0, 400) || undefined,
       excluded_hint: /종료|품절|마감/.test(summary) || undefined,
       url: link,
       recommend: recommend || 0, views: views || 0, react2: react2 || 0, // react2: 의미 미확인(관찰용)

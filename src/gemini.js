@@ -53,6 +53,23 @@ JSON만: {"match": 정수, "ratio": 숫자, "confidence": 0~1, "reason": "20자 
   return { match: out.match, ratio: Number(out.ratio) > 0 ? Number(out.ratio) : 1, confidence: Number(out.confidence) || 0, reason: out.reason };
 }
 
+// 본문 앞부분에서 "왜 싼지" 구매 포인트 추출 (여러 건 1회 호출) → [{points:[..], unit:".."}] 또는 null
+export async function extractPoints(items) {
+  if (!hasGemini() || !items.length) return null;
+  const out = await ask(`핫딜 게시글의 제목과 본문 앞부분이다. 구매자가 알아야 할 "싸게 사는 포인트"만 뽑아라.
+- 쿠폰 받는 법, 결제수단 추가할인(토스페이·카드 등), 멤버십 조건, 옵션 선택 팁, 개당/장당 단가, 최저가 조건, 주의사항
+- 각 포인트는 18자 이내 명사형, 최대 3개. 본문에 없는 내용은 절대 만들지 마라. 없으면 빈 배열
+- 가격·할인과 무관한 상품 설명(용량, 등급, 원산지, 구성 소개)은 포인트가 아니다 → 넣지 마라
+- unit: 본문·제목에 단가 정보가 있으면 "1매 10원꼴"처럼 15자 이내, 없으면 ""
+- caution: 함정·조건(예: "첫구매만", "카드 실적 필요")이 있으면 15자 이내, 없으면 ""
+
+${items.map((d, i) => `${i}. 제목: ${d.title}\n   본문: ${d._body}`).join('\n')}
+
+JSON 배열만 (길이 ${items.length}, 입력 순서): [{"points":["..."],"unit":"","caution":""}]`);
+  if (!Array.isArray(out) || out.length !== items.length) return null;
+  return out;
+}
+
 // 제목 여러 개를 한 번에 분류 → 입력 순서대로 카테고리 배열 (실패 시 null)
 export async function categorizeBatch(titles) {
   if (!hasGemini() || !titles.length) return null;
