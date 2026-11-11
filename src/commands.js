@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getUpdates, send, answerCallback, esc } from './telegram.js';
+import { CATEGORIES } from './gemini.js';
 
 const SETTINGS = join(dirname(fileURLToPath(import.meta.url)), '..', 'settings.json');
 const readS = () => JSON.parse(readFileSync(SETTINGS, 'utf8').replace(/^﻿/, ''));
@@ -13,6 +14,8 @@ const HELP = `<b>꿀딜 봇 명령어</b>
 /unwatch 단어 — 키워드 삭제
 /exclude 단어 — 제외어 추가
 /include 단어 — 제외어 삭제
+/cat 식품 — 관심 카테고리 켜기/끄기 (다시 보내면 해제)
+/cat — 카테고리 목록과 현재 선택 보기
 /min 숫자 — 다나와 대비 최소 할인율(%)
 /maxprice 숫자 — 관심 카테고리 최대 가격(원)
 /quiet 23 7 — 방해 금지 시간(23시~7시, 아침에 모아서 발송)
@@ -34,6 +37,15 @@ function apply(cmd, arg, s) {
     case '/exclude': if (!arg) return no('단어를 같이 보내주세요.');
       a.excludeKeywords = uniq([...(a.excludeKeywords ?? []), arg]); return ok(`🚫 제외어 추가: ${esc(arg)}`);
     case '/include': a.excludeKeywords = (a.excludeKeywords ?? []).filter(k => k !== arg); return ok(`제외어 삭제: ${esc(arg)}`);
+    case '/cat': {
+      const cur = a.categories ?? [];
+      const list = CATEGORIES.map(c => `${cur.includes(c) ? '✅' : '▫️'} ${c}`).join('\n');
+      if (!arg) return no(`<b>관심 카테고리</b> (✅ 선택됨)\n${list}\n\n예: /cat 식품`);
+      const c = CATEGORIES.find(x => x === arg || x.startsWith(arg) || x.includes(arg));
+      if (!c) return no(`없는 카테고리예요.\n${list}`);
+      a.categories = cur.includes(c) ? cur.filter(x => x !== c) : [...cur, c];
+      return ok(`${a.categories.includes(c) ? '✅ 관심 카테고리 추가' : '🗑 관심 카테고리 해제'}: <b>${esc(c)}</b>\n현재: ${esc(a.categories.join(', ') || '없음')}`);
+    }
     case '/min': { const n = Number(arg); if (!(arg !== '' && n >= 0 && n <= 90)) return no('0~90 사이 숫자로 보내주세요. 예: /min 15');
       a.minDiscountPct = n; return ok(`✅ 최소 할인율 ${n}%`); }
     case '/maxprice': { const n = Number(String(arg).replace(/[,원]/g, '')); if (!(n > 0)) return no('금액을 숫자로 보내주세요. 예: /maxprice 30000');
