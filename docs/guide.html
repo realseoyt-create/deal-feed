@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>텔레그램 알림 안내</title>
+<meta name="robots" content="noindex">
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" rel="stylesheet">
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--text:#16191d;--muted:#6b7380;--line:#e3e6ea;--soft:#eef0f3;--navy:#1F3A5F;--tg:#229ED9;--ok:#14a05b;--warn:#e5262b;--warnbg:#fff0f0;--tip:#fff7d6;--tiptx:#7a5a00}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1114;--card:#191c21;--text:#eceef1;--muted:#9aa1ab;--line:#2a2e35;--soft:#22262c;--navy:#a9c7ea;--ok:#3fd18a;--warn:#ff5a5f;--warnbg:#3a1517;--tip:#3a3112;--tiptx:#f5d36b}}
+*{box-sizing:border-box}
+body{margin:0;font-family:Pretendard,system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;-webkit-font-smoothing:antialiased}
+a{color:var(--tg)}
+.wrap{max-width:760px;margin:0 auto;padding:0 16px}
+header{background:var(--card);border-bottom:1px solid var(--line);padding:14px 0}
+header .wrap{display:flex;align-items:center;gap:12px}
+header a.back{text-decoration:none;color:var(--muted);font-size:14px}
+h1{font-size:20px;margin:0;color:var(--navy)}
+main{padding:20px 0 50px}
+.intro{font-size:15px;color:var(--muted);margin:0 0 18px}
+.tabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+.tabs button{font:inherit;font-size:14px;font-weight:700;padding:9px 14px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--text);cursor:pointer}
+.tabs button[aria-selected=true]{background:var(--navy);color:var(--card);border-color:var(--navy)}
+.panel[hidden]{display:none}
+.lead{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:14px;font-size:14px}
+.lead b{color:var(--navy)}
+ol.steps{list-style:none;padding:0;margin:0;counter-reset:s}
+ol.steps > li{counter-increment:s;position:relative;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px 16px 16px 60px;margin-bottom:10px}
+ol.steps > li::before{content:counter(s);position:absolute;left:16px;top:15px;width:30px;height:30px;border-radius:50%;background:var(--tg);color:#fff;font-weight:900;display:flex;align-items:center;justify-content:center}
+ol.steps h3{margin:0 0 4px;font-size:16px}
+ol.steps p{margin:4px 0;font-size:14px}
+.store{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.store a{display:inline-flex;align-items:center;gap:6px;text-decoration:none;font-size:13px;font-weight:700;padding:7px 12px;border-radius:9px;background:var(--soft);color:var(--text);border:1px solid var(--line)}
+.big{display:inline-flex;align-items:center;gap:8px;background:var(--tg);color:#fff!important;text-decoration:none;font-weight:800;font-size:16px;padding:12px 20px;border-radius:12px;margin-top:8px}
+.qr{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-top:12px;padding:12px;border-radius:12px;background:var(--soft)}
+.qr #qrbox{background:#fff;padding:8px;border-radius:8px;line-height:0}
+.qr .qt{font-size:13px;color:var(--muted);flex:1;min-width:180px}
+.mock{margin-top:10px;border:1px solid var(--line);border-radius:12px;overflow:hidden;max-width:340px;font-size:13px}
+.mock .bar{background:var(--tg);color:#fff;padding:8px 12px;font-weight:700}
+.mock .body{padding:12px;background:var(--soft);min-height:60px}
+.mock .bubble{display:inline-block;background:var(--card);border-radius:10px;padding:8px 10px;margin-bottom:6px;max-width:90%}
+.mock .bubble.me{background:#d9f5c8;color:#16191d;float:right;clear:both}
+.mock .startbtn{display:block;text-align:center;background:var(--tg);color:#fff;font-weight:800;padding:10px;margin-top:8px;border-radius:8px}
+.mock::after{content:"";display:block;clear:both}
+code,kbd{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;background:var(--soft);border:1px solid var(--line);border-radius:5px;padding:1px 5px}
+.tip{background:var(--tip);color:var(--tiptx);border-radius:10px;padding:10px 12px;font-size:13px;margin-top:8px}
+.warn{background:var(--warnbg);color:var(--warn);border-radius:10px;padding:10px 12px;font-size:13px;margin-top:8px;font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:13.5px;margin-top:6px}
+td{border-top:1px solid var(--line);padding:7px 6px;vertical-align:top}
+td:first-child{white-space:nowrap;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;color:var(--navy);font-weight:700}
+details.faq{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:8px;font-size:14px}
+details.faq summary{cursor:pointer;font-weight:700}
+h2.sec{font-size:17px;margin:26px 0 10px}
+</style>
+</head>
+<body>
+<header><div class="wrap"><a class="back" href="./">← 꿀딜 피드</a><h1>텔레그램 알림 안내</h1></div></header>
+<main class="wrap">
+  <p class="intro">텔레그램을 한 번도 안 써봤어도 괜찮아요. 순서대로 따라 하면 5분이면 끝나요.</p>
+
+  <div class="tabs" role="tablist">
+    <button role="tab" aria-selected="true" data-tab="sub">📲 알림만 받기 (추천)</button>
+    <button role="tab" aria-selected="false" data-tab="cmd">⚙️ 봇 명령어</button>
+    <button role="tab" aria-selected="false" data-tab="own">🛠 내 봇 직접 만들기</button>
+  </div>
+
+  <!-- ========== 알림만 받기 ========== -->
+  <section class="panel" id="p-sub">
+    <div class="lead">봇을 <b>만들 필요 없어요</b>. 이미 만들어진 <b>@Pompoobot</b>에 "시작"만 누르면 진짜 싼 딜이 올라올 때 알림이 와요.</div>
+    <ol class="steps">
+      <li>
+        <h3>텔레그램 앱 설치</h3>
+        <p>카카오톡 같은 무료 메신저예요. 폰에 설치하세요.</p>
+        <div class="store">
+          <a href="https://apps.apple.com/app/telegram-messenger/id686449807" target="_blank" rel="noopener"> iPhone (App Store)</a>
+          <a href="https://play.google.com/store/apps/details?id=org.telegram.messenger" target="_blank" rel="noopener">▶ Android (Play 스토어)</a>
+          <a href="https://desktop.telegram.org/" target="_blank" rel="noopener">💻 PC용</a>
+        </div>
+      </li>
+      <li>
+        <h3>전화번호로 가입</h3>
+        <p>앱을 열고 <b>Start Messaging(메시지 시작)</b> → 국가 <b>South Korea(+82)</b> 선택 → 전화번호 입력 → 문자로 온 <b>인증번호 5자리</b> 입력 → 이름 입력하면 끝.</p>
+        <div class="tip">💡 전화번호는 다른 사람에게 보이지 않아요. 봇도 내 번호를 알 수 없어요.</div>
+      </li>
+      <li>
+        <h3>꿀딜 봇 열기</h3>
+        <p><b>폰에서 이 페이지를 보고 있다면</b> 아래 버튼을 누르세요. 텔레그램 앱이 열려요.</p>
+        <a class="big" href="https://t.me/Pompoobot?start=web" target="_blank" rel="noopener">📲 @Pompoobot 열기</a>
+        <div class="qr">
+          <div id="qrbox" aria-label="봇 링크 QR 코드"></div>
+          <div class="qt"><b>PC에서 보고 있다면</b> 폰 카메라로 이 QR을 찍으세요. 또는 텔레그램 검색창에 <code>Pompoobot</code> 을 입력해도 돼요.</div>
+        </div>
+      </li>
+      <li>
+        <h3>"시작" 누르기</h3>
+        <p>채팅방 맨 아래 <b>시작(START)</b> 버튼을 누르면 구독 완료! 환영 메시지가 오면 성공이에요.</p>
+        <div class="mock" aria-hidden="true">
+          <div class="bar">PPbot</div>
+          <div class="body">
+            <span class="bubble">👋 꿀딜 알림 구독 완료!</span>
+            <span class="startbtn">시작 (START)</span>
+          </div>
+        </div>
+        <div class="tip">💡 환영 메시지는 최대 10~20분 뒤에 와요. (봇이 10분마다 확인하기 때문이에요) 바로 안 와도 기다려 주세요.</div>
+      </li>
+      <li>
+        <h3>알림 켜두기</h3>
+        <p>폰 설정에서 텔레그램 <b>알림 허용</b>이 켜져 있는지 확인하세요. 밤 11시~아침 7시 딜은 모아서 아침에 한 번에 와요.</p>
+      </li>
+    </ol>
+
+    <h2 class="sec">이런 알림이 와요 <span style="font-size:13px;color:var(--muted);font-weight:500">(예시)</span></h2>
+    <div class="mock" aria-hidden="true" style="max-width:420px">
+      <div class="bar">PPbot</div>
+      <div class="body">
+        <span class="bubble"><b>🏆 AI 강력추천 — 다나와보다 35% 싸고 뽐뿌 역대 최저</b><br>[G마켓] 와이 액체세제 2.5L x 4개 · <b>6,810원</b><br>다나와 10,480원 대비 <b>35% 쌈</b><br>💡 쿠폰 받기 · 토스페이 추가할인<br><u>뽐뿌 글 보기</u> · <u>다나와 보기</u></span>
+      </div>
+    </div>
+
+    <h2 class="sec">자주 묻는 질문</h2>
+    <details class="faq"><summary>그만 받고 싶어요</summary><p>봇 채팅방에 <code>/stop</code> 을 보내면 바로 해지돼요. 다시 받으려면 <code>/start</code>.</p></details>
+    <details class="faq"><summary>돈이 드나요? 내 정보가 보이나요?</summary><p>무료예요. 봇은 내 전화번호를 알 수 없고, 알림을 보내기 위한 채팅 번호만 암호화해서 보관해요.</p></details>
+    <details class="faq"><summary>알림 조건을 내 마음대로 바꿀 수 있나요?</summary><p>지금은 모든 구독자가 같은 알림(진짜 싼 딜·AI 강력추천)을 받아요. 나만의 키워드로 받고 싶다면 <b>🛠 내 봇 직접 만들기</b> 탭을 보세요.</p></details>
+    <details class="faq"><summary>"시작" 버튼이 안 보여요</summary><p>이미 대화한 적이 있으면 버튼 대신 입력창이 보여요. 입력창에 <code>/start</code> 를 쳐서 보내면 돼요.</p></details>
+  </section>
+
+  <!-- ========== 봇 명령어 ========== -->
+  <section class="panel" id="p-cmd" hidden>
+    <div class="lead">봇 채팅방 입력창에 아래 명령을 보내면 돼요. 앞에 <b>/</b>(슬래시)를 꼭 붙이세요.</div>
+    <h2 class="sec" style="margin-top:4px">누구나</h2>
+    <table>
+      <tr><td>/start</td><td>알림 구독 시작</td></tr>
+      <tr><td>/stop</td><td>알림 구독 해지</td></tr>
+    </table>
+    <h2 class="sec">관리자(봇 주인)만</h2>
+    <table>
+      <tr><td>/watch 생수</td><td>관심 키워드 추가 — 제목에 들어 있으면 알림</td></tr>
+      <tr><td>/unwatch 생수</td><td>키워드 삭제</td></tr>
+      <tr><td>/cat 식품</td><td>관심 카테고리 켜기/끄기 (<code>/cat</code>만 보내면 목록)</td></tr>
+      <tr><td>/maxprice 30000</td><td>관심 카테고리 최대 가격</td></tr>
+      <tr><td>/min 15</td><td>다나와보다 몇 % 이상 싸야 알릴지</td></tr>
+      <tr><td>/exclude 중고</td><td>제외어 추가 (<code>/include</code>로 삭제)</td></tr>
+      <tr><td>/quiet 23 7</td><td>방해 금지 시간 (<code>/quiet off</code>로 끄기)</td></tr>
+      <tr><td>/list</td><td>현재 설정 보기</td></tr>
+      <tr><td>/status</td><td>수집 상태 확인</td></tr>
+      <tr><td>/subs</td><td>구독자 수</td></tr>
+    </table>
+    <div class="tip">💡 명령은 다음 수집 때(최대 10~20분) 반영되고, 그때 답장이 와요. 웹 화면의 "알림 조건 · 웹에서 바꾸기"에서도 바꿀 수 있어요.</div>
+  </section>
+
+  <!-- ========== 내 봇 직접 만들기 ========== -->
+  <section class="panel" id="p-own" hidden>
+    <div class="lead">이 서비스를 <b>나만의 봇·나만의 조건</b>으로 따로 운영하고 싶을 때만 필요해요. 알림만 받을 거라면 첫 번째 탭으로 충분해요.</div>
+    <ol class="steps">
+      <li>
+        <h3>BotFather 열기</h3>
+        <p>텔레그램 공식 "봇 만드는 봇"이에요. 이름 옆에 파란 체크(✔)가 있는지 꼭 확인하세요.</p>
+        <a class="big" href="https://t.me/BotFather" target="_blank" rel="noopener">🤖 @BotFather 열기</a>
+      </li>
+      <li>
+        <h3>새 봇 만들기</h3>
+        <p>입력창에 <code>/newbot</code> 을 보내고, 질문에 차례로 답하세요.</p>
+        <div class="mock" aria-hidden="true">
+          <div class="bar">BotFather ✔</div>
+          <div class="body">
+            <span class="bubble me">/newbot</span>
+            <span class="bubble">Alright, a new bot. How are we going to call it?</span>
+            <span class="bubble me">내 꿀딜봇</span>
+            <span class="bubble">Now let's choose a username… It must end in `bot`.</span>
+            <span class="bubble me">mydeal_alert_bot</span>
+          </div>
+        </div>
+        <p>① 표시 이름: 아무거나 (예: 내 꿀딜봇)<br>② 아이디: 영문으로, <b>끝이 bot</b>으로 끝나야 해요 (예: <code>mydeal_alert_bot</code>). 이미 있으면 다른 걸로.</p>
+      </li>
+      <li>
+        <h3>토큰 복사하기</h3>
+        <p>완료되면 <b>"Use this token to access the HTTP API:"</b> 아래에 <code>1234567890:AAE...</code> 같은 긴 글자가 와요. 이게 <b>봇 토큰</b>이에요. 길게 눌러 복사하세요.</p>
+        <div class="warn">⚠️ 토큰은 비밀번호예요. 다른 사람에게 보여주거나 공개된 곳에 붙이지 마세요. 노출됐으면 BotFather에 <code>/revoke</code> 로 새로 발급받으세요.</div>
+      </li>
+      <li>
+        <h3>내 봇에게 말 걸기</h3>
+        <p>BotFather 메시지의 <code>t.me/내봇아이디</code> 링크를 눌러 내 봇을 열고 <b>시작</b>을 누르세요. (봇은 내가 먼저 말을 걸어야 메시지를 보낼 수 있어요)</p>
+      </li>
+      <li>
+        <h3>내 채팅 ID 알아내기</h3>
+        <p>브라우저 주소창에 아래 주소를 넣으세요. <code>토큰</code> 자리에 3단계 토큰을 붙여넣어요.</p>
+        <p><code>https://api.telegram.org/bot<b>토큰</b>/getUpdates</code></p>
+        <p>나오는 글자 중 <code>"chat":{"id":<b>123456789</b></code> 의 숫자가 <b>채팅 ID</b>예요.</p>
+        <div class="tip">💡 <code>"result":[]</code> 처럼 비어 있으면 4단계에서 봇에게 아무 말이나 한 번 더 보내고 새로고침하세요.</div>
+      </li>
+      <li>
+        <h3>서비스에 연결하기</h3>
+        <p>이 서비스(GitHub 저장소)를 내 계정으로 복사(Fork)한 뒤, 저장소 <b>Settings → Secrets and variables → Actions → New repository secret</b> 에 아래 두 개를 등록하세요.</p>
+        <table>
+          <tr><td>TELEGRAM_BOT_TOKEN</td><td>3단계의 봇 토큰</td></tr>
+          <tr><td>TELEGRAM_CHAT_ID</td><td>5단계의 채팅 ID 숫자</td></tr>
+          <tr><td>GEMINI_API_KEY</td><td>(선택) AI 판정용 — <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>에서 무료 발급</td></tr>
+        </table>
+        <p>그다음 <b>Actions</b> 탭에서 워크플로를 켜면 10분마다 자동으로 돌아가요. 이제 내 봇에서 <code>/watch</code>, <code>/cat</code> 등으로 나만의 조건을 설정할 수 있어요.</p>
+      </li>
+    </ol>
+  </section>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+// 탭 전환 (주소 #own 등으로 바로 열기 지원)
+const tabs = [...document.querySelectorAll('[role=tab]')];
+function show(name) {
+  tabs.forEach(t => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+  ['sub', 'cmd', 'own'].forEach(n => { document.getElementById('p-' + n).hidden = n !== name; });
+}
+tabs.forEach(t => t.addEventListener('click', () => { show(t.dataset.tab); history.replaceState(null, '', '#' + t.dataset.tab); }));
+const h = location.hash.slice(1); if (['sub', 'cmd', 'own'].includes(h)) show(h);
+
+// QR 코드 (라이브러리를 못 불러와도 페이지는 정상 동작)
+try { new QRCode(document.getElementById('qrbox'), { text: 'https://t.me/Pompoobot?start=web', width: 120, height: 120 }); }
+catch { document.querySelector('.qr').style.display = 'none'; }
+</script>
+</body>
+</html>

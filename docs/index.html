@@ -160,7 +160,7 @@ footer{padding:0 16px 30px;font-size:12px;color:var(--muted);line-height:1.6}
 <header id="hd">
   <div class="wrap">
     <div class="top"><h1>꿀딜 피드</h1><span class="meta" id="meta">불러오는 중…</span>
-      <a class="tgbtn" href="https://t.me/Pompoobot?start=web" target="_blank" rel="noopener" title="텔레그램으로 알림 받기">📲 <span>알림 받기</span></a></div>
+      <a class="tgbtn" href="guide.html" title="텔레그램으로 알림 받기 안내">📲 <span>알림 받기</span></a></div>
     <div class="filters">
       <input type="search" id="q" placeholder="검색 (예: 휴지, 생수, 에어팟)">
       <button id="fbtn" type="button" aria-expanded="false">필터 ▾</button>
@@ -185,9 +185,12 @@ footer{padding:0 16px 30px;font-size:12px;color:var(--muted);line-height:1.6}
     <div class="ic">📲</div>
     <div class="tx"><b>진짜 싼 딜만 텔레그램으로 받아보세요</b>
       다나와보다 확실히 싸거나 AI가 강력추천한 딜만 골라 보내드려요. 밤 11시~아침 7시엔 모아서 한 번에.
-      <ol class="steps"><li>아래 버튼 → 텔레그램에서 <b style="display:inline;font-size:13px">시작</b> 누르기</li><li>끝! 그만 받으려면 봇에게 /stop</li></ol>
+      <ol class="steps"><li>텔레그램이 있다면: 버튼 → <b style="display:inline;font-size:13px">시작</b> 누르면 끝</li><li>텔레그램이 처음이라면: <a href="guide.html" style="color:var(--accent);font-weight:700">설치부터 따라하기 안내</a> (5분)</li></ol>
       <span id="subcount"></span></div>
-    <a class="tgbtn" href="https://t.me/Pompoobot?start=web" target="_blank" rel="noopener">📲 <span style="display:inline">텔레그램으로 받기</span></a>
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <a class="tgbtn" href="https://t.me/Pompoobot?start=web" target="_blank" rel="noopener">📲 <span style="display:inline">텔레그램으로 받기</span></a>
+      <a class="tgbtn" href="guide.html" style="background:var(--soft);color:var(--text)">📖 <span style="display:inline">처음이에요</span></a>
+    </div>
     <button class="x" id="subclose" aria-label="닫기">✕</button>
   </div>
   <details class="ainfo" id="ainfo" hidden></details>
@@ -310,7 +313,7 @@ function renderSettings(s) {
           <button class="btn" type="button" id="s_toksave">토큰 저장</button>
           ${tok ? '<button class="btn" type="button" id="s_tokdel">연결 해제</button>' : ''}</div>
       </div>
-      <div class="hint">텔레그램 봇에 <code>/help</code>로도 바꿀 수 있어요 · <a href="https://t.me/Pompoobot" target="_blank" rel="noopener">@Pompoobot</a></div>
+      <div class="hint">텔레그램 봇에 <code>/help</code>로도 바꿀 수 있어요 · <a href="https://t.me/Pompoobot" target="_blank" rel="noopener">@Pompoobot</a> · <a href="guide.html#cmd">명령어 안내</a> · <a href="guide.html#own">내 봇 만들기</a></div>
     </form>`;
 
   $('s_toksave').onclick = () => { const v = $('s_tok').value.trim(); if (!v) return; setTok(v); renderSettings(cfg); $('ainfo').open = true; };
