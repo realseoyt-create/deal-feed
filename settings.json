@@ -1,12 +1,23 @@
 {
   "alerts": {
-    "keywords": ["휴지", "생수", "세제", "에어팟"],
-    "categories": ["생활용품"],
+    "keywords": [
+      "휴지",
+      "생수",
+      "세제",
+      "에어팟",
+      "식세기 세제"
+    ],
+    "categories": [
+      "생활용품"
+    ],
     "maxPrice": 30000,
     "hotViewsPerMin": 30,
     "hotTopPercent": 10,
     "hotRecommend": 3,
     "minDiscountPct": 10,
-    "excludeKeywords": ["종료", "품절"]
+    "excludeKeywords": [
+      "종료",
+      "품절"
+    ]
   }
 }
