@@ -246,11 +246,14 @@ function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add
 const isEnded = d => d.ended;
 
 // 할인 등급: 다나와 최저가 대비
-const off = d => d.danawa ? -d.danawa.diffPct : null;              // 양수 = 싸다
+const off = d => d.danawa ? -d.danawa.diffPct : null;              // 양수 = 싸다 (표시용, 비슷한 상품 포함)
+const offC = d => d.danawa && d.danawa.type !== 'similar' ? -d.danawa.diffPct : null; // 확정 할인 (같은 상품만)
 const saved = d => d.danawa ? d.danawa.price - d.price : null;
 function tier(d) {
   const o = off(d);
   if (o == null) return null;
+  // 비슷한 상품 비교는 색 등급 없이 회색 "참고"로만
+  if (d.danawa.type === 'similar') return { cls: 't4', label: '참고' };
   if (o >= 40) return { cls: 't1', label: '역대급' };
   if (o >= 20) return { cls: 't2', label: '대박' };
   if (o >= 10) return { cls: 't3', label: '싸다' };
@@ -408,8 +411,9 @@ const aiLine = d => {
 function renderHero() {
   const recent = d => Date.now() - new Date(d.posted_at) < 48 * 3600e3;
   // AI 강력추천을 먼저, 남는 자리는 할인율 큰 딜로
-  const strong = all.filter(d => recent(d) && d.ai?.verdict === '강력추천' && d.danawa).sort(SORT.ai);
-  const cheap = all.filter(d => recent(d) && off(d) >= 10 && !strong.includes(d) && d.ai?.verdict !== '비추천').sort(SORT.dn);
+  const strong = all.filter(d => recent(d) && !d.ended && d.ai?.verdict === '강력추천' && offC(d) != null).sort(SORT.ai);
+  // 상단 "가장 싼 딜"은 같은 상품으로 확인된 할인만 (비슷한 상품 비교는 목록에서 참고용으로만)
+  const cheap = all.filter(d => recent(d) && offC(d) >= 10 && !d.ended && !strong.includes(d) && d.ai?.verdict !== '비추천').sort(SORT.dn);
   const top = [...strong, ...cheap].slice(0, 3);
   if (!top.length) {
     // 시세보다 싸다고 확인된 딜이 없을 때: AI가 '추천' 이상 준 딜을 대신 보여줌 (근거 수준을 명시)
@@ -505,7 +509,7 @@ function render() {
     : all;
   const list = source.filter(d =>
     (!q || d.title.toLowerCase().includes(q)) && (!category || d.category === category) && (!mall || d.mall === mall) &&
-    (!max || (d.price != null && d.price <= max)) && (!only || off(d) >= 5)
+    (!max || (d.price != null && d.price <= max)) && (!only || offC(d) >= 5)
   ).sort(SORT[sort]).slice(0, 300);
   $('listTitle').textContent = `${view === 'fav' ? '찜한 딜' : only ? '다나와보다 싼 딜' : '전체 딜'} ${list.length}`;
   if (!list.length) { $('list').innerHTML = `<div class="empty">${view === 'fav' ? '☆ 를 눌러 딜을 찜해 보세요' : '조건에 맞는 딜이 없습니다'}</div>`; return; }

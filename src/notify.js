@@ -94,7 +94,22 @@ export function pruneDanawaCache() {
   return dnCache;
 }
 
+// 다나와 상품명의 브랜드(첫 단어)가 딜 제목에 없으면 "같은 상품"이라 볼 수 없음 → similar 로 낮춤
+// 예: "국내산 볶음김치" ↔ "종가 볶음 김치" (브랜드 다름)
+const GENERIC_HEAD = /^(\(주\)|주식회사|농업회사법인|영농조합법인|국내산|국산|햇|신선)$/;
+function brandInTitle(name, title) {
+  const words = name.split(/\s+/).filter(w => !GENERIC_HEAD.test(w));
+  const brand = words[0];
+  if (!brand || brand.length < 2) return true;
+  const norm = s => s.toLowerCase().replace(/[\s\-_]/g, '');
+  return norm(title).includes(norm(brand));
+}
+
+// "할인 확정 근거"로 쓸 수 있는 비교인지: 같은 상품(exact)만 인정, 비슷한 상품은 참고용
+export const confirmedOff = d => (d.danawa && d.danawa.type !== 'similar' ? -d.danawa.diffPct : null);
+
 function applyMatch(d, m, ratio, by, type) {
+  if (type !== 'similar' && !brandInTitle(m.name, d.title)) type = 'similar';
   const ref = Math.round(m.price * ratio);           // 딜과 같은 총량 기준 다나와 가격
   const diffPct = Math.round((d.price - ref) / ref * 100);
   if (diffPct < -85 || diffPct > 200) return null;   // 비현실적인 차이는 오매칭으로 간주
@@ -145,6 +160,8 @@ async function checkDanawa(d) {
 export async function enrichDanawa(deals, limit = 8, budgetMs = 150e3) {
   const t0 = Date.now();
   for (const d of deals) {
+    // 기존 결과에도 브랜드 검사 소급 적용
+    if (d.danawa && d.danawa.type !== 'similar' && !brandInTitle(d.danawa.name, d.title)) d.danawa.type = 'similar';
     if (!d.danawa || d.danawa.by === 'ai' || d.danawa.by === 'cache') continue;
     if (hasGemini()) d.recheck = true;                                                             // 규칙 매칭 결과는 AI로 다시 판정 (실제 검사 직전에 교체)
     else if (!sameProduct(cleanQuery(d.product || d.title), d.danawa.name) || !d.price) delete d.danawa;
@@ -178,7 +195,7 @@ export async function enrichDanawa(deals, limit = 8, budgetMs = 150e3) {
 function dealLines(d) {
   const price = d.price == null ? '' : d.price === 0 ? ' · 무료' : ` · <b>${won(d.price)}</b>`;
   const dn = d.danawa
-    ? `\n다나와 ${won(d.danawa.price)} 대비 <b>${d.danawa.diffPct <= 0 ? `${-d.danawa.diffPct}% 쌈` : `${d.danawa.diffPct}% 비쌈`}</b>${d.danawa.ratio !== 1 ? ` (수량 ×${d.danawa.ratio} 환산)` : ''}\n<i>비교: ${esc(d.danawa.name.slice(0, 40))}</i>`
+    ? `\n${d.danawa.type === 'similar' ? '(참고) 비슷한 상품 ' : ''}다나와 ${won(d.danawa.price)} 대비 <b>${d.danawa.diffPct <= 0 ? `${-d.danawa.diffPct}% 쌈` : `${d.danawa.diffPct}% 비쌈`}</b>${d.danawa.ratio !== 1 ? ` (수량 ×${d.danawa.ratio} 환산)` : ''}\n<i>비교: ${esc(d.danawa.name.slice(0, 40))}</i>`
     : '';
   const hist = d.hist ? `\n뽐뿌 이전 최저 ${won(d.hist.prevMin)} (${d.hist.count}회)` : '';
   const ai = d.ai && !String(d.alert ?? '').includes('AI 강력추천') ? `\n🤖 AI ${d.ai.verdict} ${d.ai.score}점: ${esc(d.ai.reason)}` : '';
@@ -230,7 +247,10 @@ export async function notifyPending(deals, { telegram, alerts = {}, quietHours, 
     const c = candidate(d, alerts, hotV);
     if (!c) continue; // 미달 → 반응이 오르면 다음 실행에 재검사
 
-    const diff = await checkDanawa(d);
+    await checkDanawa(d);
+    // 비슷한 상품 비교는 참고용 → 통과 판정에는 같은 상품(exact) 비교만 사용
+    const conf = confirmedOff(d);
+    const diff = conf == null ? null : -conf;
     const pass = diff == null ? !c.needCompare : diff <= c.maxDiff;
     if (!pass) { d.notified = 3; dropped++; continue; }
     d.alert = c.reason;

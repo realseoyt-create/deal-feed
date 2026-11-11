@@ -9,11 +9,11 @@ const HOUR = 3600e3;
 const hasEvidence = d => d.price > 0 && (d.danawa || d.hist || d.recommend >= 1 || (d.momentum?.vpm ?? 0) >= 10);
 
 // 입력이 바뀌면(다나와 결과·역대가·추천 변화) 다시 판정
-const fingerprint = d => [d.price, d.danawa?.diffPct, d.hist?.prevMin, Math.min(d.recommend, 5), d.momentum && d.momentum.vpm >= 10, !!d.tips].join('|');
+const fingerprint = d => [d.price, d.danawa?.diffPct, d.danawa?.type, d.hist?.prevMin, Math.min(d.recommend, 5), d.momentum && d.momentum.vpm >= 10, !!d.tips].join('|');
 
 function facts(d) {
   const f = [`가격 ${d.price.toLocaleString('ko-KR')}원`, `쇼핑몰 ${d.mall ?? '?'}`, `배송 ${d.shipping ?? '?'}`, `카테고리 ${d.category}`];
-  if (d.danawa) f.push(`다나와 최저가(같은 구성 환산) ${d.danawa.price.toLocaleString('ko-KR')}원 → ${d.danawa.diffPct <= 0 ? -d.danawa.diffPct + '% 쌈' : d.danawa.diffPct + '% 비쌈'} (비교상품: ${d.danawa.name})`);
+  if (d.danawa) f.push(`${d.danawa.type === 'similar' ? '[참고용·브랜드 다른 비슷한 상품] ' : ''}다나와 최저가(같은 구성 환산) ${d.danawa.price.toLocaleString('ko-KR')}원 → ${d.danawa.diffPct <= 0 ? -d.danawa.diffPct + '% 쌈' : d.danawa.diffPct + '% 비쌈'} (비교상품: ${d.danawa.name})`);
   else f.push('다나와 비교 없음');
   if (d.hist) f.push(`뽐뿌 이전 최저 ${d.hist.prevMin.toLocaleString('ko-KR')}원 (${d.hist.count}회 등장)${d.hist.lowest ? ' → 이번이 역대 최저' : ''}`);
   f.push(`게시 ${Math.round((Date.now() - new Date(d.posted_at)) / 60000)}분 경과, 조회 ${d.views}, 추천 ${d.recommend}`);
@@ -24,6 +24,8 @@ function facts(d) {
 }
 
 export async function aiVerdicts(deals, max = 8) {
+  // 근거(다나와·역대가 등)가 바뀐 판정은 즉시 제거 → 다시 판정할 때까지 표시하지 않음
+  for (const d of deals) if (d.ai && d.ai.fp !== fingerprint(d)) delete d.ai;
   // 상위 모델은 하루 한도가 작아 20분에 1번만 판정 (나머지 실행은 건너뜀)
   if (new Date().getUTCMinutes() % 20 >= 10) return;
   if (!hasGemini() || !budgetOk('main')) return;
@@ -55,7 +57,7 @@ JSON 배열만 (길이 ${targets.length}, 입력 순서):
       const o = out[i];
       if (!o || !VERDICTS.includes(o.verdict)) return;
       // 가격 근거(다나와 20%↓ 또는 뽐뿌 역대 최저) 없이는 강력추천 불가 → 추천으로 낮춤
-      const priceProof = (d.danawa && d.danawa.diffPct <= -20) || d.hist?.lowest;
+      const priceProof = (d.danawa && d.danawa.type !== 'similar' && d.danawa.diffPct <= -20) || d.hist?.lowest;
       if (o.verdict === '강력추천' && !priceProof) { o.verdict = '추천'; o.score = Math.min(Number(o.score) || 0, 79); }
       d.ai = { verdict: o.verdict, score: Math.max(0, Math.min(100, Number(o.score) || 0)), reason: String(o.reason ?? '').slice(0, 60), fp: fingerprint(d) };
     });

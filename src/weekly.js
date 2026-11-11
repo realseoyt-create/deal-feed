@@ -9,7 +9,7 @@ const WEB = 'https://realseoyt-create.github.io/deal-feed/';
 
 // 좋은 딜 점수: 다나와 할인율 + AI 점수 (근거 있는 것만)
 function goodScore(d) {
-  const off = d.danawa ? -d.danawa.diffPct : 0;
+  const off = d.danawa && d.danawa.type !== 'similar' ? -d.danawa.diffPct : 0; // 같은 상품 비교만 근거로
   if (off < 15 && d.ai?.verdict !== '강력추천' && !d.hist?.lowest) return null;
   return off + (d.ai?.score ?? 0) / 4 + (d.hist?.lowest ? 10 : 0);
 }
@@ -21,7 +21,7 @@ export function recordBest(state) {
     if (s == null) continue;
     best.set(d.id, {
       id: d.id, title: (d.product || d.title).slice(0, 50), mall: d.mall, price: d.price, url: d.url,
-      off: d.danawa ? -d.danawa.diffPct : null, verdict: d.ai?.verdict ?? null, reason: d.ai?.reason ?? null,
+      off: d.danawa && d.danawa.type !== 'similar' ? -d.danawa.diffPct : null, verdict: d.ai?.verdict ?? null, reason: d.ai?.reason ?? null,
       lowest: !!d.hist?.lowest, score: Math.round(s), at: d.posted_at,
     });
   }
