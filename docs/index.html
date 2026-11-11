@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>꿀딜 피드</title>
+<meta name="robots" content="noindex">
+<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" rel="stylesheet">
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--text:#1b1f24;--muted:#6b7380;--line:#e3e6ea;--accent:#2A9D8F;--navy:#1F3A5F;--hot:#e4572e;--good:#2a9d4f}
+@media (prefers-color-scheme:dark){:root{--bg:#121417;--card:#1b1e23;--text:#e8eaed;--muted:#9aa1ab;--line:#2c3037;--accent:#3cc2b2;--navy:#9cc0e6;--hot:#ff7a59;--good:#4cc272}}
+*{box-sizing:border-box}
+body{margin:0;font-family:Pretendard,system-ui,sans-serif;background:var(--bg);color:var(--text)}
+header{position:sticky;top:0;background:var(--card);border-bottom:1px solid var(--line);padding:14px 16px;z-index:2}
+.top{display:flex;align-items:baseline;gap:12px;max-width:960px;margin:0 auto}
+h1{font-size:20px;margin:0;color:var(--navy)}
+.meta{color:var(--muted);font-size:13px;margin-left:auto;text-align:right}
+.filters{display:flex;flex-wrap:wrap;gap:8px;max-width:960px;margin:12px auto 0}
+input,select{font:inherit;font-size:14px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text)}
+input[type=search]{flex:1;min-width:160px}
+input[type=number]{width:130px}
+label.tog{display:flex;align-items:center;gap:4px;font-size:14px}
+.chips{display:flex;gap:6px;flex-wrap:wrap;max-width:960px;margin:10px auto 0}
+.chip{padding:5px 11px;border-radius:999px;border:1px solid var(--line);font-size:13px;cursor:pointer;background:var(--card)}
+.chip.on{background:var(--navy);color:var(--card);border-color:var(--navy)}
+main{max-width:960px;margin:0 auto;padding:12px 16px 40px}
+.deal{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:8px}
+.deal.alerted{border-left:4px solid var(--accent)}
+.row1{display:flex;gap:8px;align-items:baseline}
+.mall{font-size:12px;color:var(--accent);font-weight:700;white-space:nowrap}
+a.prod{font-weight:600;flex:1;line-height:1.4;color:inherit;text-decoration:none}
+a.prod:hover{text-decoration:underline}
+.price{font-weight:800;white-space:nowrap;color:var(--navy)}
+.row2{display:flex;gap:10px;font-size:12px;color:var(--muted);margin-top:6px;flex-wrap:wrap}
+.b{font-weight:700}.hot{color:var(--hot)}.rec{color:var(--accent)}.good{color:var(--good)}.bad{color:var(--hot)}
+.dn{font-size:13px;margin-top:6px}.dn a{color:var(--accent)}
+.empty{text-align:center;color:var(--muted);padding:40px}
+footer{max-width:960px;margin:0 auto;padding:0 16px 30px;font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <div class="top"><h1>꿀딜 피드</h1><span class="meta" id="meta">불러오는 중…</span></div>
+  <div class="filters">
+    <input type="search" id="q" placeholder="검색 (예: 휴지, 생수, 에어팟)">
+    <select id="mall"><option value="">전체 쇼핑몰</option></select>
+    <input type="number" id="maxPrice" placeholder="최대 가격(원)" step="1000">
+    <select id="sort">
+      <option value="new">최신순</option>
+      <option value="hot">조회 급상승순</option>
+      <option value="rec">추천순</option>
+      <option value="cheap">낮은 가격순</option>
+      <option value="dn">다나와 대비 할인순</option>
+    </select>
+    <label class="tog"><input type="checkbox" id="onlyAlert"> 알림 딜만</label>
+  </div>
+  <div class="chips" id="cats"></div>
+</header>
+<main id="list"></main>
+<footer>뽐뿌게시판 RSS 기반 개인용 피드 · 최근 3일 · 원문은 각 링크에서 확인하세요. 다나와 비교는 상품명 자동 매칭이라 구성이 다를 수 있습니다.</footer>
+<script>
+const $ = id => document.getElementById(id);
+let all = [], category = '';
+const won = n => n == null ? '' : n === 0 ? '무료' : n.toLocaleString('ko-KR') + '원';
+const ago = iso => { const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 60 ? `${m}분 전` : m < 1440 ? `${Math.floor(m/60)}시간 전` : `${Math.floor(m/1440)}일 전`; };
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const SORT = {
+  new: (a, b) => b.posted_at.localeCompare(a.posted_at),
+  hot: (a, b) => b.views_per_min - a.views_per_min,
+  rec: (a, b) => b.recommend - a.recommend || b.views_per_min - a.views_per_min,
+  cheap: (a, b) => (a.price ?? Infinity) - (b.price ?? Infinity),
+  dn: (a, b) => (a.danawa?.diffPct ?? Infinity) - (b.danawa?.diffPct ?? Infinity),
+};
+
+function renderChips() {
+  const cnt = {}; all.forEach(d => cnt[d.category] = (cnt[d.category] || 0) + 1);
+  $('cats').innerHTML = [`<span class="chip ${category===''?'on':''}" data-c="">전체 ${all.length}</span>`]
+    .concat(Object.entries(cnt).sort((a, b) => b[1] - a[1]).map(([c, n]) => `<span class="chip ${category===c?'on':''}" data-c="${esc(c)}">${esc(c)} ${n}</span>`)).join('');
+  const malls = {}; all.forEach(d => d.mall && (malls[d.mall] = (malls[d.mall] || 0) + 1));
+  const cur = $('mall').value;
+  $('mall').innerHTML = '<option value="">전체 쇼핑몰</option>' + Object.entries(malls).sort((a, b) => b[1] - a[1]).slice(0, 40)
+    .map(([m]) => `<option ${m===cur?'selected':''}>${esc(m)}</option>`).join('');
+}
+
+function render() {
+  const q = $('q').value.trim().toLowerCase(), mall = $('mall').value, max = Number($('maxPrice').value) || null, only = $('onlyAlert').checked;
+  const list = all.filter(d =>
+    (!q || d.title.toLowerCase().includes(q)) && (!category || d.category === category) && (!mall || d.mall === mall) &&
+    (!max || (d.price != null && d.price <= max)) && (!only || d.notified === 1 || d.notified === 2)
+  ).sort(SORT[$('sort').value]);
+  $('list').innerHTML = list.length ? list.slice(0, 300).map(d => {
+    const dn = d.danawa ? `<div class="dn">다나와 <a href="${esc(d.danawa.url)}" target="_blank" rel="noopener">${won(d.danawa.price)}</a> 대비
+      <b class="${d.danawa.diffPct <= -5 ? 'good' : d.danawa.diffPct >= 5 ? 'bad' : ''}">${d.danawa.diffPct <= 0 ? -d.danawa.diffPct + '% 쌈' : d.danawa.diffPct + '% 비쌈'}</b></div>` : '';
+    return `<div class="deal ${d.notified === 1 || d.notified === 2 ? 'alerted' : ''}">
+      <div class="row1"><span class="mall">${esc(d.mall ?? '')}</span><a class="prod" href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.product || d.title)}</a><span class="price">${won(d.price)}</span></div>
+      ${dn}
+      <div class="row2">
+        ${d.alert ? `<span class="b rec">🔔 ${esc(d.alert)}</span>` : ''}
+        ${d.views_per_min >= 20 ? `<span class="b hot">🔥 ${d.views_per_min}/분</span>` : ''}
+        ${d.recommend > 0 ? `<span class="b rec">👍 ${d.recommend}</span>` : ''}
+        <span>조회 ${d.views}</span><span>${esc(d.category)}</span>${d.shipping ? `<span>배송 ${esc(d.shipping)}</span>` : ''}<span>${ago(d.posted_at)}</span>
+      </div></div>`;
+  }).join('') : '<div class="empty">조건에 맞는 딜이 없습니다</div>';
+}
+
+async function load() {
+  try {
+    const r = await fetch('deals.json?t=' + Date.now());
+    const data = await r.json();
+    all = data.deals;
+    $('meta').textContent = data.updatedAt ? `업데이트 ${ago(data.updatedAt)}` : '';
+    renderChips(); render();
+  } catch (e) { $('meta').textContent = '데이터를 불러오지 못했습니다'; }
+}
+
+let t; const deb = () => { clearTimeout(t); t = setTimeout(render, 200); };
+$('q').addEventListener('input', deb);
+$('maxPrice').addEventListener('input', deb);
+['mall', 'sort', 'onlyAlert'].forEach(id => $(id).addEventListener('change', render));
+$('cats').addEventListener('click', e => { const c = e.target.closest('.chip'); if (!c) return; category = c.dataset.c; renderChips(); render(); });
+load();
+setInterval(load, 5 * 60 * 1000);
+</script>
+</body>
+</html>

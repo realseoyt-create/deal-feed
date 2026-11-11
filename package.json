@@ -1,0 +1,12 @@
+{
+  "name": "deal-feed",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "뽐뿌게시판 핫딜을 모아 GitHub Pages로 보여주고 텔레그램으로 알리는 개인용 피드",
+  "scripts": {
+    "once": "node src/run.js",
+    "preview": "node src/preview.js"
+  },
+  "engines": { "node": ">=20" }
+}
