@@ -7,7 +7,9 @@ const strip = s => s.replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&l
 export function cleanQuery(product) {
   return product
     .replace(/\[[^\]]*\]|\([^)]*\)/g, ' ')
-    .replace(/\d+\s*\+\s*\d+|최대\s*\d+%|\d+%\s*할인|할인|특가|한정|라이브|무료배송|무배|증정|모음|\/.*$/g, ' ')
+    .replace(/\s\/\s.*$/, ' ')   // " / 최대 45% 할인" 같은 꼬리 설명 제거
+    .replace(/\//g, ' ')         // "밴딩형/지퍼형" → 단어로 분리
+    .replace(/\d+\s*\+\s*\d+|최대\s*\d+%|\d+%\s*할인|할인|특가|한정|라이브|무료배송|무배|증정|모음/g, ' ')
     .replace(/\s+/g, ' ').trim().split(' ').slice(0, 6).join(' ');
 }
 
@@ -23,7 +25,8 @@ export function sameProduct(query, name) {
   const models = toks.filter(t => /[a-z]/i.test(t) && /\d/.test(t) && !/^\d+(gb|tb|g|kg|ml|l|mm|cm|m|w|구|개|팩|매|롤)$/i.test(t));
   if (models.length && !models.some(t => n.includes(norm(t)))) return false;
   if (!sizesCompatible(query, name)) return false;
-  return hit / toks.length >= 0.5;
+  // 단어 2개 이상이면 최소 2개 & 60% 이상 일치 (한 단어만 겹치는 오매칭 방지)
+  return toks.length === 1 ? hit === 1 : hit >= Math.max(2, Math.ceil(toks.length * 0.6));
 }
 
 // 용량(g/kg/ml/L)·수량(개/팩/캔/롤…)이 양쪽에 모두 적혀 있는데 다르면 다른 상품

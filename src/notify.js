@@ -43,6 +43,10 @@ async function checkDanawa(d) {
 
 // 화면 표시용: 반응이 중간 이상인 최근 딜을 실행당 최대 N건 비교 (대량 조회 방지)
 export async function enrichDanawa(deals, limit = 12) {
+  // 매칭 규칙이 강화되면 기존 결과도 재검증해서 틀린 비교는 제거
+  for (const d of deals) {
+    if (d.danawa && (!sameProduct(cleanQuery(d.product || d.title), d.danawa.name) || !d.price)) delete d.danawa;
+  }
   const recent = deals.filter(d => Date.now() - new Date(d.posted_at) < 6 * HOUR);
   const vs = recent.map(d => d.views_per_min).sort((a, b) => a - b);
   const median = vs.length ? vs[Math.floor(vs.length / 2)] : 0;

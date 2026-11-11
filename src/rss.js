@@ -21,7 +21,7 @@ export async function fetchFeed({ source, url }) {
     const link = (tag(it, 'link') ?? '').replace('http://', 'https://');
     const no = Number((link.match(/no=(\d+)/) || [])[1]) || null;
     const summary = tag(it, 'description') ?? '';
-    const parsed = parseTitle(title);
+    const parsed = parseTitle(title); // 재수집 때마다 최신 파싱 규칙으로 갱신됨
     const pub = tag(it, 'pubDate');
     const posted = pub ? new Date(pub) : new Date();
     // 뽐뿌 RSS hits: [추천|조회|?|?] (관찰 기반 추정)
